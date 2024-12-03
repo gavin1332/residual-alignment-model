@@ -89,7 +89,7 @@ datasets=[xx]，xx为要训练的数据集，见preference_datasets.py
     # 开始本次评测
     python judgment_hh.py --judge-model Qwen2.5-72B-Instruct-GPTQ-Int4 --bench-name PKU --model_id $model_id 
     # 查看结果
-    python show_result_hh.py --input-file=data/mt_bench/model_judgment/{评测用大模型}_hh_single.jsonl
+    python show_result_hh.py --input-file=data/PKU/model_judgment/{评测用大模型}_hh_single.jsonl
 
 >--bench-name对应测试结果所在目录，与前面的prefix对应,
 
