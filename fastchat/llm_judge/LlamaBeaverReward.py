@@ -20,7 +20,7 @@ parser.add_argument(
 parser.add_argument(
     "--model_id",
     type=str,
-    default="/private/model/PKU-Alignment/beaver-7b-v3.0-reward/",
+    default="/private/model/PKU-Alignment/beaver-7b-v1.0-reward/",
     help="The path to the model",
 )
 
