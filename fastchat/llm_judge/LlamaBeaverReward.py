@@ -65,14 +65,14 @@ if __name__ == "__main__":
     chats=formating(args.file)
     scores=0
     i=0
-    for chat in tqdm(chats):
-
-        if len(chat.split(" "))>300:
-            chat=" ".join(chat.split(" ")[:300])
-        input_ids = tokenizer(chat, return_tensors='pt').to(device)
-        res = model(**input_ids)
-        scores+=res["end_scores"]
-        # print(res["end_scores"])
+    with torch.no_grad():
+        for chat in tqdm(chats):
+            if len(chat.split(" "))>300:
+                chat=" ".join(chat.split(" ")[:300])
+            input_ids = tokenizer(chat, return_tensors='pt').to(device)
+            res = model(**input_ids)
+            scores+=res["end_scores"]
+            # print(res["end_scores"])
     scores/=len(chats) # pythia12b_sft_norm_mix-2.8639
 
     print(f"BeaverReward result: {scores}/{len(chats)}:", scores)
