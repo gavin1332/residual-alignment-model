@@ -79,7 +79,7 @@ datasets=[xx]，xx为要训练的数据集，见preference_datasets.py
 
 1. 生成离线结果
 
-单模型：
+单模型，以pythia为例，其他模型需更换代码内的CausalLM类型：
 
 
     model_id=pythia12-sft_norm-alpacaeval
