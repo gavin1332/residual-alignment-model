@@ -75,7 +75,53 @@ datasets=[xx]，xx为要训练的数据集，见preference_datasets.py
 
     CUDA_VISIBLE_DEVICES=0 python LlamaBeaverReward.py --file data/PKU/model_answer/pythia28b-sft-norm-mix.jsonl
 
->显存不够可增加GPU: CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+**AlpacaEval评估**
+
+1. 生成离线结果
+
+单模型：
+
+
+    model_id=pythia12-sft_norm-alpacaeval
+    prefix="data/PKU/model_answer/"
+    tail=".jsonl"
+    pt_path="${prefix}${model_id}${tail}"
+    rm $pt_path
+    https_proxy=10.211.30.6:8888 CUDA_VISIBLE_DEVICES=0 python gen_alpacaeval.py \
+          --model-path /private/home/liudianqing/tmp_model_path/pythias/pythia12-sft_norm-hh \
+          --model-id $model_id \
+          --bench-name PKU
+    
+生成结果保存在./data/PKU/model_answer/{model_id}.json
+
+
+MDS：
+
+
+    https_proxy=10.211.30.6:8888 CUDA_VISIBLE_DEVICES=2 python gen_alpacaeval_ip.py \
+	  --model-path /private/home/liudianqing/tmp_model_path/pythias/pythia12-sft_norm-hh \
+	  --model-id $model_id \
+	  --energy_model_path /private/home/liudianqing/tmp_model_path/pythias/pythia28-dpo-our-hhsft-2e7 \
+	  --bench-name PKU
+
+
+sPAR：
+
+
+    https_proxy=10.211.30.6:8888 CUDA_VISIBLE_DEVICES=2 python gen_alpacaeval_energy.py \ 
+        ......
+
+
+2. 生成评估结果（lm_judge_env环境内）
+
+
+    https_proxy=10.211.30.6:8888 OPENAI_API_KEY=EMPTY alpaca_eval --model_outputs 'xxxxx.json'   --annotators_config 'alpaca_eval_qwen2.5_70b_fn'
+
+
+3. 修改评测用模型接口
+
+须修改alpaca_eval源代码，新增接口可参考/private/home/liudianqing/lm_judge_env/lib/python3.10/site-packages/alpaca_eval/evaluators_configs/alpaca_eval_qwen2.5_70b_fn目录下的配置
+
 
 **大模型评估胜率**
 
