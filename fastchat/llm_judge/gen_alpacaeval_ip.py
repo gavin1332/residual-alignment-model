@@ -187,9 +187,9 @@ def get_model_answers(
                 "answer": answer,
             }
             examples[eid]["output"] = answer
-            examples[eid]["model"] = model_id
+            examples[eid]["generator"] = model_id
             print("answer:\n", answer)
-            fout.write(json.dumps(ans_json, ensure_ascii=False) + "\n")
+            # fout.write(json.dumps(ans_json, ensure_ascii=False) + "\n")
         name = answer_file.split('/')[-1].split('.')[0]
         path = "/".join(answer_file.split('/')[:-1])
         newname = path + '/' + name + '.json'
