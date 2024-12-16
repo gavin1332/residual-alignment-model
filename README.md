@@ -75,7 +75,9 @@ datasets=[xx]，xx为要训练的数据集，见preference_datasets.py
 
     CUDA_VISIBLE_DEVICES=0 python LlamaBeaverReward.py --file data/PKU/model_answer/pythia28b-sft-norm-mix.jsonl
 
-**AlpacaEval评估**
+**AlpacaEval评估(依赖 lm_judge_env 环境)**
+
+激活环境：source /private/home/liudianqing/lm_judge_env/bin/activate
 
 1. 生成离线结果
 
