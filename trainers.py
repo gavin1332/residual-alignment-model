@@ -41,66 +41,29 @@ import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
 
-def sample(model,inputs,tokenizer):
-    model.eval()
-    generation_config = dict(
-        max_new_tokens=300,
-        do_sample=True
-    )
-    # print("Response: ")
-    predict_results= model.generate(
-        input_ids=inputs['prompt_input_ids'],
-        attention_mask=inputs['prompt_attention_mask'],
-        eos_token_id=tokenizer.eos_token_id,
-        pad_token_id=tokenizer.eos_token_id,
-        **generation_config
-    )
-    # print(predict_results)
-    # output = tokenizer.batch_decode(predict_results, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-    # print(output)
-    model.train()
-    return predict_results
+
+#def sample(model, inputs, tokenizer):
+#    model.eval()
+#    generation_config = dict(
+#        max_new_tokens=300,
+#        do_sample=True
+#    )
+#    # print("Response: ")
+#    predict_results= model.generate(
+#        input_ids=inputs['prompt_input_ids'],
+#        attention_mask=inputs['prompt_attention_mask'],
+#        eos_token_id=tokenizer.eos_token_id,
+#        pad_token_id=tokenizer.eos_token_id,
+#        **generation_config
+#    )
+#    # print(predict_results)
+#    # output = tokenizer.batch_decode(predict_results, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+#    # print(output)
+#    model.train()
+#    return predict_results
 
 
-def preference_loss_our(policy_chosen_logps: torch.FloatTensor,
-                        policy_rejected_logps: torch.FloatTensor,
-                        beta: float,
-                        label_smoothing: float = 0.0,
-                        ipo: bool = False,
-                        reference_free: bool = False) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-    """Compute the DPO loss for a batch of policy and reference model log probabilities.
-
-    Args:
-        policy_chosen_logps: Log probabilities of the policy model for the chosen responses. Shape: (batch_size,)
-        policy_rejected_logps: Log probabilities of the policy model for the rejected responses. Shape: (batch_size,)
-        reference_chosen_logps: Log probabilities of the reference model for the chosen responses. Shape: (batch_size,)
-        reference_rejected_logps: Log probabilities of the reference model for the rejected responses. Shape: (batch_size,)
-        beta: Temperature parameter for the DPO loss, typically something in the range of 0.1 to 0.5. We ignore the reference model as beta -> 0.
-        label_smoothing: conservativeness for DPO loss, which assumes that preferences are noisy (flipped with probability label_smoothing)
-        ipo: If True, use the IPO loss instead of the DPO loss.
-        reference_free: If True, we ignore the _provided_ reference model and implicitly use a reference model that assigns equal probability to all responses.
-
-    Returns:
-        A tuple of three tensors: (losses, chosen_rewards, rejected_rewards).
-        The losses tensor contains the DPO loss for each example in the batch.
-        The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
-    """
-    pi_logratios = policy_chosen_logps - policy_rejected_logps
-
-
-    if reference_free:
-        ref_logratios = 0
-
-    # also known as h_{\pi_\theta}^{y_w,y_l}
-
-        # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
-        # losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
-
-    losses = -F.logsigmoid(beta * pi_logratios)
-
-    return losses, torch.Tensor([0.0113]),torch.Tensor([-0.3113])
-
-def preference_loss_norm(policy_chosen_logps: torch.FloatTensor,
+def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
                     reference_chosen_logps: torch.FloatTensor,
                     reference_rejected_logps: torch.FloatTensor,
@@ -125,6 +88,10 @@ def preference_loss_norm(policy_chosen_logps: torch.FloatTensor,
         The losses tensor contains the DPO loss for each example in the batch.
         The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
     """
+    if reference_chosen_logps is None:
+        reference_chosen_logps = 0
+        reference_rejected_logps = 0
+
     pi_logratios = policy_chosen_logps - policy_rejected_logps
     ref_logratios = reference_chosen_logps - reference_rejected_logps
 
@@ -134,15 +101,15 @@ def preference_loss_norm(policy_chosen_logps: torch.FloatTensor,
     logits = pi_logratios - ref_logratios  # also known as h_{\pi_\theta}^{y_w,y_l}
 
     if ipo:
-        losses = (logits - 1 / (2 * beta)) ** 2  # Eq. 17 of https://arxiv.org/pdf/2310.12036v2.pdf
+        losses = (logits - 1/(2 * beta)) ** 2  # Eq. 17 of https://arxiv.org/pdf/2310.12036v2.pdf
     else:
         # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
         losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
 
     chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
     rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
-    return losses, chosen_rewards, rejected_rewards
 
+    return losses, chosen_rewards, rejected_rewards
 
 
 def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False) -> torch.FloatTensor:
@@ -164,7 +131,9 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, averag
 
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == -100] = 0
+
     per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+
     if average_log_prob:
         return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
     else:
@@ -244,7 +213,7 @@ class BasicTrainer(object):
             policy_output = self.policy.generate(
                 batch['prompt_input_ids'], attention_mask=batch['prompt_attention_mask'], max_length=self.config.max_length, do_sample=True, pad_token_id=self.tokenizer.pad_token_id)
 
-        if self.config.loss.name in {'dpo_norm', 'dpo_our', 'ipo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
             ctx = lambda: (FSDP.summon_full_params(self.reference_model, writeback=False, recurse=False) if 'FSDP' in self.config.trainer else contextlib.nullcontext())
             with ctx():
                 reference_output = self.reference_model.generate(
@@ -254,7 +223,7 @@ class BasicTrainer(object):
         policy_output = all_gather_if_needed(policy_output, self.rank, self.world_size)
         policy_output_decoded = self.tokenizer.batch_decode(policy_output, skip_special_tokens=True)
 
-        if self.config.loss.name in {'dpo_norm', 'dpo_our',  'ipo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
             reference_output = pad_to_length(reference_output, self.config.max_length, self.tokenizer.pad_token_id)
             reference_output = all_gather_if_needed(reference_output, self.rank, self.world_size)
             reference_output_decoded = self.tokenizer.batch_decode(reference_output, skip_special_tokens=True)
@@ -262,7 +231,7 @@ class BasicTrainer(object):
             reference_output_decoded = []
 
         return policy_output_decoded, reference_output_decoded
-
+    
     def concatenated_forward(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
         """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
         
@@ -281,26 +250,24 @@ class BasicTrainer(object):
 
         metrics = {}
         train_test = 'train' if train else 'eval'
-        if loss_config.name in {'ipo','dpo_norm','dpo_our'}:
+
+        if loss_config.name in {'dpo', 'ipo', 'dpo_our'}:
             policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
             with torch.no_grad():
                 if self.reference_model:
                     reference_chosen_logps, reference_rejected_logps = self.concatenated_forward(self.reference_model, batch)
+                else:
+                    reference_chosen_logps, reference_rejected_logps = None, None
 
-            if loss_config.name == 'dpo_our' or loss_config.name == 'dpo_norm':
+            if loss_config.name == 'dpo' or loss_config.name == 'dpo_our':
                 loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'ipo': False}
             elif loss_config.name == 'ipo':
                 loss_kwargs = {'beta': loss_config.beta, 'ipo': True}
             else:
                 raise ValueError(f'unknown loss {loss_config.name}')
-            if loss_config.name == 'dpo_our':
-                losses, chosen_rewards, rejected_rewards = preference_loss_our(
-                    policy_chosen_logps, policy_rejected_logps, **loss_kwargs)
-                chosen_rewards = chosen_rewards.cuda()
-                rejected_rewards = rejected_rewards.cuda()
-            elif loss_config.name == 'dpo_norm':
-                losses, chosen_rewards, rejected_rewards = preference_loss_norm(
-                    policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps, **loss_kwargs)
+
+            losses, chosen_rewards, rejected_rewards = preference_loss(
+                policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps, **loss_kwargs)
 
             reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
@@ -315,31 +282,28 @@ class BasicTrainer(object):
 
             policy_rejected_logps = all_gather_if_needed(policy_rejected_logps.detach(), self.rank, self.world_size)
             metrics[f'logps_{train_test}/rejected'] = policy_rejected_logps.cpu().numpy().tolist()
-        elif loss_config.name == 'sft_norm':
-            policy_chosen_logits = self.policy(batch['chosen_input_ids'],
-                                               attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
-            policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['chosen_labels'], average_log_prob=False)
-            losses = -policy_chosen_logps
+
         elif loss_config.name == 'sft':
+            policy_chosen_logits = self.policy(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
+            policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['chosen_labels'], average_log_prob=False)
 
-            # policy_chosen_logits = self.policy(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
-            # policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['chosen_labels'], average_log_prob=False)
-            # losses = -policy_chosen_logps
-            real_sample_logits = self.policy(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
-            policy_chosen_logits = self.policy(batch['rejected_input_ids'], attention_mask=batch['rejected_attention_mask']).logits.to(torch.float32)
-            policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['rejected_labels'], average_log_prob=False)
-            real_sample_logps = _get_batch_logps(real_sample_logits, batch['chosen_labels'], average_log_prob=False)
-            # lambd=real_sample_logps/policy_chosen_logps
-            # if lambd>=1:
-            #     lambd = 1
+            losses = -policy_chosen_logps
+
+        elif loss_config.name == 'sft_our':
+            policy_chosen_logits = self.policy(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
+            policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['chosen_labels'], average_log_prob=False)
+            policy_reject_logits = self.policy(batch['rejected_input_ids'], attention_mask=batch['rejected_attention_mask']).logits.to(torch.float32)
+            policy_reject_logps = _get_batch_logps(policy_reject_logits, batch['rejected_labels'], average_log_prob=False)
+            # alpha = policy_chosen_logps / policy_reject_logps
+            # if alpha >= 1:
+            #     alpha = 1
             # else:
-            #     lambd = 0.01
-            # lambd=0.0001
-            lambd=0.1
-            losses = -real_sample_logps + lambd * policy_chosen_logps
-            # losses = -policy_chosen_logps +0*real_sample_logps# -real_sample_logps
+            #     alpha = 0.01
+            # alpha=0.0001
+            alpha = loss_config.alpha
+            losses = -policy_chosen_logps + alpha * policy_reject_logps
 
-        policy_chosen_logps = all_gather_if_needed(-policy_chosen_logps.detach(), self.rank, self.world_size)
+        policy_chosen_logps = all_gather_if_needed(policy_chosen_logps.detach(), self.rank, self.world_size)
         metrics[f'logps_{train_test}/chosen'] = policy_chosen_logps.cpu().numpy().tolist()
 
         all_devices_losses = all_gather_if_needed(losses.detach(), self.rank, self.world_size)
@@ -358,7 +322,7 @@ class BasicTrainer(object):
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        if self.config.loss.name in {'dpo_norm','dpo_our', 'ipo'}:
+        if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
             if self.reference_model:
                 self.reference_model.eval()
 
@@ -376,7 +340,7 @@ class BasicTrainer(object):
                 if self.config.sample_during_eval:
                     all_policy_samples, all_reference_samples = [], []
                     policy_text_table = wandb.Table(columns=["step", "prompt", "sample"])
-                    if self.config.loss.name in {'dpo_norm','dpo_our',  'ipo'}:
+                    if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
                         reference_text_table = wandb.Table(columns=["step", "prompt", "sample"])
 
                 for eval_batch in (tqdm.tqdm(self.eval_batches, desc='Computing eval metrics') if self.rank == 0 else self.eval_batches):
@@ -403,7 +367,7 @@ class BasicTrainer(object):
 
                         for prompt, sample in zip(eval_batch['prompt'], policy_samples):
                             policy_text_table.add_data(self.example_counter, prompt, sample)
-                        if self.config.loss.name in {'dpo_norm','dpo_our',  'ipo'}:
+                        if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
                             for prompt, sample in zip(eval_batch['prompt'], reference_samples):
                                 reference_text_table.add_data(self.example_counter, prompt, sample)
 
@@ -411,7 +375,7 @@ class BasicTrainer(object):
                 rank0_print(f'eval after {self.example_counter}: {formatted_dict(mean_eval_metrics)}')
                 if self.config.sample_during_eval:                    
                     rank0_print(json.dumps(all_policy_samples[:10], indent=2))
-                    if self.config.loss.name in {'dpo_norm','dpo_our', 'ipo'}:
+                    if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
                         rank0_print(json.dumps(all_reference_samples[:10], indent=2))
 
                 if self.config.wandb.enabled and self.rank == 0:
@@ -419,7 +383,7 @@ class BasicTrainer(object):
 
                     if self.config.sample_during_eval:
                         wandb.log({"policy_samples": policy_text_table}, step=self.example_counter)
-                        if self.config.loss.name in {'dpo_norm','dpo_our',  'ipo'}:
+                        if self.config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
                             wandb.log({"reference_samples": reference_text_table}, step=self.example_counter)
 
                 if self.example_counter > 0:
@@ -444,7 +408,6 @@ class BasicTrainer(object):
 
                 for k, v in metrics.items():
                     batch_metrics[k].extend(v)
-            # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=self.config.max_grad_norm, norm_type=2)
 
             grad_norm = self.clip_gradient()
             self.optimizer.step()
@@ -476,7 +439,7 @@ class BasicTrainer(object):
 
     def clip_gradient(self):
         """Clip the gradient norm of the parameters of a non-FSDP policy."""
-        return torch.nn.utils.clip_grad_norm_(self.policy.parameters(),max_norm=self.config.max_grad_norm, norm_type=2).item()
+        return torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=self.config.max_grad_norm, norm_type=2).item()
 
     def write_state_dict(self, step: int, state: Dict[str, torch.Tensor], metrics: Dict, filename: str, dir_name: Optional[str] = None):
         """Write a checkpoint to disk."""
@@ -503,7 +466,7 @@ class BasicTrainer(object):
         # optimizer_state_dict = self.optimizer.state_dict()
         # self.write_state_dict(self.example_counter, optimizer_state_dict, metrics, 'optimizer.pt', output_dir)
         # del optimizer_state_dict
-        #
+
         # scheduler_state_dict = self.scheduler.state_dict()
         # self.write_state_dict(self.example_counter, scheduler_state_dict, metrics, 'scheduler.pt', output_dir)
 
@@ -564,7 +527,7 @@ class FSDPTrainer(BasicTrainer):
                 apply_activation_checkpointing(self.policy, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn)
                 rank0_print('FSDP activation checkpointing enabled!')
 
-        if config.loss.name in {'dpo_norm','dpo_our',  'ipo'}:
+        if config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
             rank0_print('Sharding reference model...')
             if self.reference_model:
                 self.reference_model = FSDP(reference_model, **shared_fsdp_kwargs)
@@ -595,7 +558,7 @@ class FSDPTrainer(BasicTrainer):
         #     self.write_state_dict(self.example_counter, optimizer_state_dict, metrics, 'optimizer.pt', output_dir)
         # del optimizer_state_dict
         # dist.barrier()
-        #
+
         # if self.rank == 0:
         #     scheduler_state_dict = self.scheduler.state_dict()
         #     self.write_state_dict(self.example_counter, scheduler_state_dict, metrics, 'scheduler.pt', output_dir)
@@ -613,7 +576,7 @@ class TensorParallelTrainer(BasicTrainer):
         
         rank0_print('Sharding policy...')
         self.policy = tp.tensor_parallel(policy, sharded=True)
-        if config.loss.name in {'dpo_norm','dpo_our',  'ipo'}:
+        if config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
             rank0_print('Sharding reference model...')
             if self.reference_model:
                 self.reference_model = tp.tensor_parallel(reference_model, sharded=False)

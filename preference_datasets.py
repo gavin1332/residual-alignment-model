@@ -118,6 +118,7 @@ def get_shp(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str
 
     return data
 
+
 def get_hh(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     """Load the Anthropic Helpful-Harmless dataset from Huggingface and convert it to the necessary format.
     
@@ -147,12 +148,10 @@ def get_hh(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str,
         prompt = extract_anthropic_prompt(ex['chosen'])
         chosen_response = ex['chosen'][len(prompt):]
         rejected_response = ex['rejected'][len(prompt):]
-        # prompt = re.sub("Human:","### Instruction: \n", prompt)
-        # prompt = re.sub("Assistant:", "### Response:", prompt)
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
-    i=0
+    once = True
     for row in tqdm.tqdm(dataset, desc='Processing HH', disable=silent):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
@@ -160,28 +159,27 @@ def get_hh(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str,
         data[prompt]['pairs'].append((n_responses, n_responses + 1))
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
-        if i==0:
-            print("====================\n"+prompt+'\n================')
-        i+=1
+        if once:
+            pass #print("====================\n" + prompt + '\n================')
+            once = False
 
     return data
 
-def get_pku(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-    str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+def get_pkusafer(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
+        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     print(f'Loading PKU-SafeRLHF dataset ({split} split) from Huggingface...')
     # dataset = datasets.load_dataset('PKU-Alignment/PKU-SafeRLHF',name='alpaca3-8b', split=split, cache_dir=cache_dir)
     dataset = datasets.load_dataset('PKU-Alignment/PKU-SafeRLHF', split=split, cache_dir=cache_dir)
-
     print('done')
 
     def split_prompt_and_responses(ex):
         prompt = 'Human: ' + ex["prompt"] + '\n\nAssistant:'
-        chosen_response = ex['response_0'] if ex["safer_response_id"]==0 else ex["response_1"]
-        rejected_response = ex['response_1'] if ex["safer_response_id"]==0 else ex["response_0"]
+        chosen_response = ex['response_0'] if ex["safer_response_id"] == 0 else ex["response_1"]
+        rejected_response = ex['response_1'] if ex["safer_response_id"] == 0 else ex["response_0"]
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
-    i = 0
+    once = True
     for row in tqdm.tqdm(dataset, desc='Processing PKU-SafeRLHF', disable=silent):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
@@ -189,47 +187,27 @@ def get_pku(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         data[prompt]['pairs'].append((n_responses, n_responses + 1))
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
-        if i == 0:
-            print("====================\n" + prompt + '\n================')
-        i += 1
+        if once:
+            pass #print("====================\n" + prompt + '\n================')
+        once = False
 
     return data
 
 def get_mix(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-    str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     data = get_hh(split, silent=silent, cache_dir=cache_dir)
     data.update(get_alpaca())
-    data.update(get_pku(split, silent=silent, cache_dir=cache_dir))
+    data.update(get_pkusafer(split, silent=silent, cache_dir=cache_dir))
     return data
 
 def get_safe(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-    str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     data = get_hh(split, silent=silent, cache_dir=cache_dir)
-    data.update(get_pku(split, silent=silent, cache_dir=cache_dir))
+    data.update(get_pkusafer(split, silent=silent, cache_dir=cache_dir))
     return data
 
 def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-    str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    """Load the Anthropic Helpful-Harmless dataset from Huggingface and convert it to the necessary format.
-
-       The dataset is converted to a dictionary with the following structure:
-       {
-           'prompt1': {
-               'responses': List[str],
-               'pairs': List[Tuple[int, int]],
-               'sft_target': str
-           },
-           'prompt2': {
-               ...
-           },
-       }
-
-       Prompts should be structured as follows:
-         \n\nHuman: <prompt>\n\nAssistant:
-       Multiple turns are allowed, but the prompt should always start with \n\nHuman: and end with \n\nAssistant:.
-
-       For this dataset, the sft_target is just the chosen response.
-    """
+        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     print(f'Loading HH dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('/private/home/liudianqing/corpus/rlhf/openai_summarize_comparisons', split=split, cache_dir=cache_dir)
     print('done')
@@ -244,7 +222,7 @@ def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
-    i = 0
+    once = True
     for row in tqdm.tqdm(dataset, desc='Processing HH', disable=silent):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
@@ -252,34 +230,14 @@ def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         data[prompt]['pairs'].append((n_responses, n_responses + 1))
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
-        if i == 0:
-            print("====================\n" + prompt + '\n================')
-        i += 1
+        if once:
+            pass #print("====================\n" + prompt + '\n================')
+        once = False
 
     return data
 
 def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-    str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    """Load the Anthropic Helpful-Harmless dataset from Huggingface and convert it to the necessary format.
-
-       The dataset is converted to a dictionary with the following structure:
-       {
-           'prompt1': {
-               'responses': List[str],
-               'pairs': List[Tuple[int, int]],
-               'sft_target': str
-           },
-           'prompt2': {
-               ...
-           },
-       }
-
-       Prompts should be structured as follows:
-         \n\nHuman: <prompt>\n\nAssistant:
-       Multiple turns are allowed, but the prompt should always start with \n\nHuman: and end with \n\nAssistant:.
-
-       For this dataset, the sft_target is just the chosen response.
-    """
+        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     print(f'Loading HH dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('/private/home/liudianqing/corpus/rlhf/openai_summarize_tldr_sft', split=split, cache_dir=cache_dir)
     print('done')
@@ -309,26 +267,6 @@ def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dic
     return data
 
 def get_alpaca():
-    """Load the Anthropic Helpful-Harmless dataset from Huggingface and convert it to the necessary format.
-
-       The dataset is converted to a dictionary with the following structure:
-       {
-           'prompt1': {
-               'responses': List[str],
-               'pairs': List[Tuple[int, int]],
-               'sft_target': str
-           },
-           'prompt2': {
-               ...
-           },
-       }
-
-       Prompts should be structured as follows:
-         \n\nHuman: <prompt>\n\nAssistant:
-       Multiple turns are allowed, but the prompt should always start with \n\nHuman: and end with \n\nAssistant:.
-
-       For this dataset, the sft_target is just the chosen response.
-    """
     print(f'Loading alpaca dataset ')
     dataset = json.load(open('/private/home/liudianqing/soft/LLaMA-Factory/data/alpaca_data_cleaned.json'))
     print('done')
@@ -358,26 +296,6 @@ def get_alpaca():
     return data
 
 def get_alpaca_sample():
-    """Load the Anthropic Helpful-Harmless dataset from Huggingface and convert it to the necessary format.
-
-       The dataset is converted to a dictionary with the following structure:
-       {
-           'prompt1': {
-               'responses': List[str],
-               'pairs': List[Tuple[int, int]],
-               'sft_target': str
-           },
-           'prompt2': {
-               ...
-           },
-       }
-
-       Prompts should be structured as follows:
-         \n\nHuman: <prompt>\n\nAssistant:
-       Multiple turns are allowed, but the prompt should always start with \n\nHuman: and end with \n\nAssistant:.
-
-       For this dataset, the sft_target is just the chosen response.
-    """
     print(f'Loading alpaca dataset ')
     # sft-norm -sft-our数据集不同
     dataset = json.load(open('/private/home/liudianqing/projects/direct-preference-optimization-main/sample/pythia/pythia12b-sample-alpaca-result.jsonllllll'))
@@ -423,8 +341,8 @@ def get_dataset(name: str, split: str, silent: bool = False, cache_dir: str = No
         data=get_alpaca()
     elif name=="alpaca_sample":
         data=get_alpaca_sample()
-    elif name=="pku":
-        data=get_pku(split, silent=silent, cache_dir=cache_dir)
+    elif name=="pkusafer":
+        data=get_pkusafer(split, silent=silent, cache_dir=cache_dir)
     elif name=="mix":
         data=get_mix(split, silent=silent, cache_dir=cache_dir)
     elif name=="safe":

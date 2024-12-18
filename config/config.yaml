@@ -59,7 +59,7 @@ gradient_accumulation_steps: 1
 max_grad_norm: 10.0
 
 # the maximum allowed length for an input (prompt + response)
-max_length: 1024
+max_length: 512
 
 # the maximum allowed length for a prompt
 max_prompt_length: 256
@@ -80,19 +80,16 @@ trainer: BasicTrainer
 optimizer: RMSprop
 
 # number of linear warmup steps for the learning rate
-warmup_steps: 200
+warmup_steps: 150
 
 # whether or not to use activation/gradient checkpointing
 activation_checkpointing: false
 
 # evaluate and save model every eval_every steps
-eval_every: 6470
-
-#6470
+eval_every: 20_000
 
 # prevent wandb from logging more than once per minimum_log_interval_secs
 minimum_log_interval_secs: 2
-
 
 defaults:
 - _self_
