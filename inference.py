@@ -27,11 +27,10 @@ from transformers.generation.logits_process import (
     TemperatureLogitsWarper,
     TopKLogitsWarper,
     TopPLogitsWarper,
-
 )
 
-from fastchat.utils import is_partial_stop, is_sentence_complete
 from fastchat.conversation import get_conv_template
+from fastchat.utils import is_partial_stop, is_sentence_complete
 from peft import PeftModel
 from tqdm import tqdm
 
@@ -40,7 +39,7 @@ def info(message):
     print(message, file=sys.stderr)
 
 
-def top_k_top_p_filtering(logits, top_k: int, top_p: float, filter_value: float = -float("Inf"), min_tokens_to_keep: int = 1):
+def top_k_top_p_filtering(logits, top_k: int, top_p: float, temperature: float=1.0, filter_value: float=-float("Inf"), min_tokens_to_keep: int=1):
     if top_k > 0:
         top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))  # Safety check
         # Remove all tokens with a probability less than the last token of the top-k
@@ -49,7 +48,7 @@ def top_k_top_p_filtering(logits, top_k: int, top_p: float, filter_value: float 
 
     if top_p < 1.0:
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1)
+        cumulative_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits / temperature, dim=-1), dim=-1)
 
         # Remove tokens with cumulative probability above the threshold (token with 0 are kept)
         sorted_indices_to_remove = cumulative_probs > top_p
@@ -68,45 +67,48 @@ def top_k_top_p_filtering(logits, top_k: int, top_p: float, filter_value: float 
 
 
 class LogitsWarper:
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, base_out=None):
+    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
         raise NotImplementedError('Not implemented yet.')
 
 
 class SPARLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, top_k=-1, top_p=0.9):
+    def __init__(self, base_model, top_k: int, top_p: float, temperature: float):
         self.base_model = base_model
         self.top_k = top_k
         self.top_p = top_p
+        self.temperature = temperature
 
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, base_out=None):
+    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
         base_out = self.base_model(input_ids=input_ids, use_cache=True,
                 past_key_values=base_out.past_key_values if base_out else None)
-        logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k, top_p=self.top_p)
-        scores_processed = torch.where(logits == -float('Inf'), -float('Inf'), scores)
-        return scores_processed, base_out
+        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :],
+                top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
+        logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
+        return logits_warped, base_out
 
 
 class MDSLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, temperature=1.0):
+    def __init__(self, base_model, base_temperature: float, temperature: float):
         self.base_model = base_model
+        self.base_temperature = base_temperature
         self.temperature = temperature
 
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, base_out=None):
+    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
         base_out = self.base_model(input_ids=input_ids, use_cache=True,
                 past_key_values=base_out.past_key_values if base_out else None)
 
-        base_probs = nn.functional.softmax(base_out.logits[:, -1, :] / temperature, dim=-1)
-        probs = nn.functional.softmax(scores / temperature, dim=-1)
-        scores = base_probs * probs
-        probs = scores / scores.sum(dim=-1, keepdim=True)
+        base_probs = nn.functional.softmax(base_out.logits[:, -1, :] / self.base_temperature, dim=-1)
+        probs = nn.functional.softmax(logits / self.temperature, dim=-1)
+        probs_mul = base_probs * probs
+        probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
 
         epsilon = 1e-10
-        scores_processed = torch.log(probs + epsilon) + 0
-        return scores_processed, base_out
+        logits_warped = torch.log(probs + epsilon) + 0
+        return logits_warped, base_out
 
 
 def prepare_logits_processor(
-    temperature: float, repetition_penalty: float, top_p: float, top_k: int,
+    temperature: float, repetition_penalty: float, top_p: float, top_k: int
 ) -> LogitsProcessorList:
     processor_list = LogitsProcessorList()
     # TemperatureLogitsWarper doesn't accept 0.0, 1.0 makes it a no-op so we skip two cases.
@@ -161,7 +163,7 @@ def generate_stream(
     output_ids = list(input_ids)
     input_echo_len = len(input_ids)
 
-    step_ids = torch.as_tensor([input_ids], device=device)
+    start_ids = torch.as_tensor([input_ids], device=device)
 
     past_key_values = out = None
     token_logprobs = [None]  # The first token has no logprobs.
@@ -171,13 +173,13 @@ def generate_stream(
     base_out = None
     for i in range(max_new_tokens):
         if i == 0:  # prefill
-            out = model(input_ids=step_ids, use_cache=True)
+            out = model(input_ids=start_ids, use_cache=True)
             logits = out.logits
             past_key_values = out.past_key_values
 
             if logprobs is not None:
                 # Prefull logprobs for the prompt.
-                shift_input_ids = step_ids[..., 1:].contiguous()
+                shift_input_ids = start_ids[..., 1:].contiguous()
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_logits = torch.log_softmax(shift_logits, dim=-1).tolist()
                 for label_id, logit in zip(
@@ -185,12 +187,9 @@ def generate_stream(
                 ):
                     token_logprobs.append(logit[label_id])
         else:  # decoding
-            step_ids = torch.as_tensor([[token] if not sent_interrupt else output_ids], device=device)
-            out = model(
-                input_ids=step_ids,
-                use_cache=True,
-                past_key_values=past_key_values if not sent_interrupt else None,
-            )
+            start_ids = torch.as_tensor([[token] if not sent_interrupt else output_ids], device=device)
+            out = model(input_ids=start_ids, use_cache=True,
+                past_key_values=past_key_values if not sent_interrupt else None)
             sent_interrupt = False
             logits = out.logits
             past_key_values = out.past_key_values
@@ -198,9 +197,8 @@ def generate_stream(
         last_token_logits = logits[:, -1, :]
 
         if logits_warper:
-            if i == 0:
-                base_out = None
-            last_token_logits, base_out = logits_warper(step_ids, last_token_logits, base_out)
+            last_token_logits, base_out = logits_warper(start_ids, last_token_logits,
+                    base_out if i > 0 else None)
 
         if logits_processor:
             if repetition_penalty > 1.0:
@@ -341,6 +339,32 @@ def generate_stream(
     torch.cuda.empty_cache()
 
 
+def load_model(model_path: str, dtype: str='bfloat16', lora_path: str=None, tokenizer_path: str=None):
+    if dtype == 'bfloat16':
+        torch_dtype = torch.bfloat16
+    elif dtype == 'float16':
+        torch_dtype = torch.float16
+    else:
+        torch_dtype = 'auto'
+
+    config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path, config=config,
+            torch_dtype=torch_dtype, device_map='auto', trust_remote_code=True)
+
+    if lora_path:
+        info('Loading lora model ...')
+        model = PeftModel.from_pretrained(model, lora_path, device_map='auto')
+
+    tokenizer = None
+    if tokenizer_path:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=True,
+                trust_remote_code=True, padding_side='left')
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+    return model, tokenizer
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, required=True)
@@ -370,46 +394,30 @@ def main():
     info(args)
 
     device = torch.device(0)
-    if args.dtype == 'bfloat16':
-        torch_dtype = torch.bfloat16
-    elif args.dtype == 'float16':
-        torch_dtype = torch.float16
-    else:
-        torch_dtype = 'auto'
 
     if args.tokenizer_path is None:
         args.tokenizer_path = args.model
+    model, tokenizer = load_model(args.model, args.dtype, args.lora_model, args.tokenizer_path)
+    model.eval()
 
-    config = AutoConfig.from_pretrained(args.model, trust_remote_code=True)
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path, use_fast=True, trust_remote_code=True, padding_side='left')
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model, config=config, torch_dtype=torch_dtype, device_map='auto', trust_remote_code=True)
+    info(tokenizer)
 
     base_model = None
     if args.base_model:
-        base_config = AutoConfig.from_pretrained(args.base_model, trust_remote_code=True)
-        base_model = AutoModelForCausalLM.from_pretrained(args.base_model, config=base_config, torch_dtype=torch_dtype, device_map='auto', trust_remote_code=True)
+        base_model, _ = load_model(args.base_model, args.dtype)
         base_model.eval()
 
-    if base_model and args.resize_emb:
-        base_model_vocab_size = base_model.get_input_embeddings().weight.size(0)
-        model_vocab_size = model.get_input_embeddings().weight.size(0)
-        tokenzier_vocab_size = len(tokenizer)
-        info(f'Vocab of the base model: {base_model_vocab_size}')
-        info(f'Vocab of the expert model: {model_vocab_size}')
-        info(f'Vocab of the tokenizer: {tokenzier_vocab_size}')
-        if base_model_vocab_size != tokenzier_vocab_size or model_vocab_size != tokenzier_vocab_size:
-            info('Resize model embeddings to fit tokenizer')
-            base_model.resize_token_embeddings(tokenzier_vocab_size)
-            model.resize_token_embeddings(tokenzier_vocab_size)
-
-    if args.lora_model:
-        info('Loading lora model ...')
-        model = PeftModel.from_pretrained(model, args.lora_model, device_map='auto')
-
-    model.eval()
-    info(tokenizer)
+        if args.resize_emb:
+            base_model_vocab_size = base_model.get_input_embeddings().weight.size(0)
+            model_vocab_size = model.get_input_embeddings().weight.size(0)
+            tokenzier_vocab_size = len(tokenizer)
+            info(f'Vocab of the base model: {base_model_vocab_size}')
+            info(f'Vocab of the expert model: {model_vocab_size}')
+            info(f'Vocab of the tokenizer: {tokenzier_vocab_size}')
+            if base_model_vocab_size != tokenzier_vocab_size or model_vocab_size != tokenzier_vocab_size:
+                info('Resize model embeddings to fit tokenizer')
+                base_model.resize_token_embeddings(tokenzier_vocab_size)
+                model.resize_token_embeddings(tokenzier_vocab_size)
 
     # test data
     if args.data_file is None:
@@ -437,24 +445,28 @@ def main():
     logits_warper = None
     if base_model:
         if args.is_spar_mode:
-            logits_warper = SPARLogitsWarper(base_model, top_k=args.base_top_k, top_p=args.base_top_p)
+            logits_warper = SPARLogitsWarper(base_model,
+                    top_k=args.base_top_k, top_p=args.base_top_p, temperature=args.base_temperature)
         else:
-            logits_warper = MDSLogitsWarper(base_model, temperature=args.base_temperature)
+            logits_warper = MDSLogitsWarper(base_model,
+                    base_temperature=args.base_temperature, temperature=args.temperature)
+            args.temperature = 1.0
   
     info(f'Start inference at device {device} ...')
 
     for i, example in enumerate(tqdm(examples, desc='Generating outputs')):
         conv = get_conv_template(args.template_name)
-        # only one run
+        # single round
         conv.append_message(conv.roles[0], example)
         conv.append_message(conv.roles[1], args.response_prefix if args.response_prefix else None)
         prompt = conv.get_prompt()
 
+        # FIXME(liuyi): used only for training format matching
         if prompt.startswith('\n\n'):
             prompt = prompt[2:]
 
         if i == 0:
-            print(f'{"="*40} 1st prompt\n{prompt}\n{"="*40}')
+            print(f'{"="*30} 1st prompt\n{prompt}\n{"="*30}')
         
         gen_params = dict(
             prompt=prompt,
@@ -480,7 +492,7 @@ def main():
         response = ans['text'].rstrip()
 
         if i == 0:
-            print(f'{"="*40} 1st response\n{response}\n{"="*40}')
+            print(f'{"="*30} 1st response\n{response}\n{"="*30}')
 
         if args.return_prefix:
             respose = args.response_prefix + response

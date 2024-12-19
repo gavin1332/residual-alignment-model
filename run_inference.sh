@@ -43,12 +43,17 @@ if [ -z $BASE_MODEL]; then
                            --repetition_penalty 1.02 \
 
 else
-    IS_SPAR_MODE=true
-    TEMPERATURE=0.8
-    TOP_P=0.95
-    if [ "IS_SPAR_MODE" -eq "false" ]; then
-        TEMPERATURE=1.2
+    IS_SPAR_MODE=false
+    BASE_TEMPERATURE=1.0
+    BASE_TOP_P=0.9
+    TEMPERATURE=0.9
+    TOP_P=0.9
+    REPETITION_PENALTY=1.2
+    if [ "$IS_SPAR_MODE" = "false" ]; then
+        BASE_TEMPERATURE=0.8
+        TEMPERATURE=1.1
         TOP_P=0.9
+        REPETITION_PENALTY=1.02
     fi
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
@@ -57,11 +62,12 @@ else
                            --temperature $TEMPERATURE \
                            --top_p $TOP_P \
                            --max_new_tokens 512 \
-                           --repetition_penalty 1.2 \
+                           --repetition_penalty $REPETITION_PENALTY \
                            --base_model $BASE_MODEL \
                            --is_spar_mode $IS_SPAR_MODE \
-                           --base_top_p 0.95 \
-                           --base_temperature 1.0 \
+                           --base_top_k -1 \
+                           --base_top_p $BASE_TOP_P \
+                           --base_temperature $BASE_TEMPERATURE \
                            --resize_emb \
 
 fi

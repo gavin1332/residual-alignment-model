@@ -2,15 +2,20 @@
 
 set -u
 
-if [ $# != 3 ]; then
-    echo 'Usage: $0 input_file output_file devices'
-    echo '    Examples: $0 input.json output.json 0,1,2,3,4,5,6,7'
+if [[ $# != 3 && $# != 4 ]]; then
+    echo 'Usage: $0 input_file output_file devices [id]'
+    echo '    Examples: $0 input.json output.json 0,1,2,3,4,5,6,7 [id]'
     exit
 fi
 
 INPUT_FILE=$1
 OUTPUT_FILE=$2
 DEVICES=$3
+
+ID=$(date +%s)
+if [[ $# == 4 ]]; then
+    ID=$4
+fi
 
 if [ ! -f $INPUT_FILE ]; then
     echo "$INPUT_FILE not exists."
@@ -30,8 +35,8 @@ echo "total_lines=$total_lines num_gpus=$num_gpus lines_per_part=$lines_per_part
 
 BASENAME=`basename $INPUT_FILE`
 DIRNAME=`dirname $INPUT_FILE`
-WORKDIR=$DIRNAME/_$BASENAME
-INPUT_PREFIX=$WORKDIR/part-
+WORKDIR=$DIRNAME/_${BASENAME}_$num_gpus
+INPUT_PREFIX=$WORKDIR/part-${ID}-
 
 mkdir -p $WORKDIR
 
