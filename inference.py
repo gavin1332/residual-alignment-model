@@ -382,7 +382,7 @@ def main():
     parser.add_argument('--top_p', type=float, default=1.0)
     parser.add_argument('--top_k', type=int, default=-1)
     parser.add_argument('--max_new_tokens', type=int, default=512)
-    parser.add_argument('--context_len', type=int, default=1000, help='Total number of tokens in prompt and generated text')
+    parser.add_argument('--context_len', type=int, default=1024, help='Total number of tokens in prompt and generated text')
     parser.add_argument('--repetition_penalty', type=float, default=1.0)
     # arguments for sPAR and MDS
     parser.add_argument('--base_model', type=str, default=None)
