@@ -97,8 +97,8 @@ class MDSLogitsWarper(LogitsWarper):
         base_out = self.base_model(input_ids=input_ids, use_cache=True,
                 past_key_values=base_out.past_key_values if base_out else None)
 
-        base_probs = nn.functional.softmax(base_out.logits[:, -1, :] / self.base_temperature, dim=-1)
-        probs = nn.functional.softmax(logits / self.temperature, dim=-1)
+        base_probs = torch.nn.functional.softmax(base_out.logits[:, -1, :] / self.base_temperature, dim=-1)
+        probs = torch.nn.functional.softmax(logits / self.temperature, dim=-1)
         probs_mul = base_probs * probs
         probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
 
