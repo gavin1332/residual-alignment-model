@@ -386,7 +386,7 @@ def main():
     parser.add_argument('--repetition_penalty', type=float, default=1.0)
     # arguments for sPAR and MDS
     parser.add_argument('--base_model', type=str, default=None)
-    parser.add_argument('--is_spar_mode', type=bool, default=True)
+    parser.add_argument('--sample_mode', choices=['spar', 'mds'], default='spar')
     parser.add_argument('--base_top_k', type=int, default=-1)
     parser.add_argument('--base_top_p', type=float, default=0.95)
     parser.add_argument('--base_temperature', type=float, default=1.0)
@@ -444,13 +444,15 @@ def main():
 
     logits_warper = None
     if base_model:
-        if args.is_spar_mode:
+        if args.sample_mode == 'spar':
             logits_warper = SPARLogitsWarper(base_model,
                     top_k=args.base_top_k, top_p=args.base_top_p, temperature=args.base_temperature)
-        else:
+        elif args.sample_mode == 'mds':
             logits_warper = MDSLogitsWarper(base_model,
                     base_temperature=args.base_temperature, temperature=args.temperature)
             args.temperature = 1.0
+        else:
+            raise NotImplementedError('Not supported yet.')
   
     info(f'Start inference at device {device} ...')
 

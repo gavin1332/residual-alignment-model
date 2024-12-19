@@ -43,13 +43,13 @@ if [ -z $BASE_MODEL]; then
                            --repetition_penalty 1.02 \
 
 else
-    IS_SPAR_MODE=false
+    SAMPLE_MODE=mds
     BASE_TEMPERATURE=1.0
     BASE_TOP_P=0.9
     TEMPERATURE=0.9
     TOP_P=0.9
     REPETITION_PENALTY=1.2
-    if [ "$IS_SPAR_MODE" = "false" ]; then
+    if [ "$SAMPLE_MODE" = "mds" ]; then
         BASE_TEMPERATURE=0.8
         TEMPERATURE=1.1
         TOP_P=0.9
@@ -64,7 +64,7 @@ else
                            --max_new_tokens 512 \
                            --repetition_penalty $REPETITION_PENALTY \
                            --base_model $BASE_MODEL \
-                           --is_spar_mode $IS_SPAR_MODE \
+                           --sample_mode $SAMPLE_MODE \
                            --base_top_k -1 \
                            --base_top_p $BASE_TOP_P \
                            --base_temperature $BASE_TEMPERATURE \
