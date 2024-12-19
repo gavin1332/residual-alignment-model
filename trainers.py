@@ -42,27 +42,6 @@ import functools
 from typing import Optional, Dict, List, Union, Tuple
 
 
-#def sample(model, inputs, tokenizer):
-#    model.eval()
-#    generation_config = dict(
-#        max_new_tokens=300,
-#        do_sample=True
-#    )
-#    # print("Response: ")
-#    predict_results= model.generate(
-#        input_ids=inputs['prompt_input_ids'],
-#        attention_mask=inputs['prompt_attention_mask'],
-#        eos_token_id=tokenizer.eos_token_id,
-#        pad_token_id=tokenizer.eos_token_id,
-#        **generation_config
-#    )
-#    # print(predict_results)
-#    # output = tokenizer.batch_decode(predict_results, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-#    # print(output)
-#    model.train()
-#    return predict_results
-
-
 def preference_loss(policy_chosen_logps: torch.FloatTensor,
                     policy_rejected_logps: torch.FloatTensor,
                     reference_chosen_logps: torch.FloatTensor,
@@ -449,7 +428,6 @@ class BasicTrainer(object):
         os.makedirs(dir_name, exist_ok=True)
         output_path = os.path.join(dir_name, filename)
         rank0_print(f'writing checkpoint to {output_path}...')
-        # self.policy.save_pretrained(output_path, safe_serialization=False)
         torch.save({
             'step_idx': step,
             'state': state,
