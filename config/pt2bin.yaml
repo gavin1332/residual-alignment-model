@@ -1,6 +1,0 @@
-# The target model format of huggingface transformers
-base_model_path: null
-# The path of pytorch state_dicts
-src_model_path: null
-# The output path of converted model in transformers format
-dst_model_path: null
