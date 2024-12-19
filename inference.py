@@ -103,7 +103,7 @@ class MDSLogitsWarper(LogitsWarper):
         probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
 
         epsilon = 1e-10
-        logits_warped = torch.log(probs + epsilon) + 0
+        logits_warped = torch.log(probs + epsilon)
         return logits_warped, base_out
 
 
