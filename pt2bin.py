@@ -1,75 +1,31 @@
 import torch
-import re
-torch.backends.cuda.matmul.allow_tf32 = True
-import torch.nn as nn
 import transformers
-from utils import get_local_dir, get_local_run_dir, disable_dropout, init_distributed, get_open_port
+import argparse
 import os
-import hydra
-import torch.multiprocessing as mp
-from omegaconf import OmegaConf, DictConfig
-import trainers
-import wandb
-import json
-import socket
-from typing import Optional, Set
-import resource
-
-OmegaConf.register_new_resolver("get_local_run_dir",
-                                lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs))
-
-@hydra.main(version_base=None, config_path="config", config_name="config")
-def main(config: DictConfig):
-    """Main entry point for training. Validates config, creates/initializes model(s), and kicks off worker process(es)."""
-
-    # Resolve hydra references, e.g. so we don't re-compute the run directory
-    OmegaConf.resolve(config)
-
-    missing_keys: Set[str] = OmegaConf.missing_keys(config)
-    if missing_keys:
-        raise ValueError(f"Got missing keys in config:\n{missing_keys}")
-
-    if config.eval_every % config.batch_size != 0:
-        print('WARNING: eval_every must be divisible by batch_size')
-        print('Setting eval_every to', config.eval_every - config.eval_every % config.batch_size)
-        config.eval_every = config.eval_every - config.eval_every % config.batch_size
-
-    if 'FSDP' in config.trainer and config.fsdp_port is None:
-        free_port = get_open_port()
-        print('no FSDP port specified; using open port for FSDP:', free_port)
-        config.fsdp_port = free_port
-
-    print(OmegaConf.to_yaml(config))
-
-    config_path = os.path.join(config.local_run_dir, 'config.yaml')
-    # with open(config_path, 'w') as f:
-    #     OmegaConf.save(config, f)
-
-    # print('=' * 80)
-    # print(f'Writing to {socket.gethostname()}:{config.local_run_dir}')
-    # print('=' * 80)
-
-    os.environ['XDG_CACHE_HOME'] = get_local_dir(config.local_dirs)
-    print('building policy')
-    model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
-    policy_dtype = getattr(torch, config.model.policy_dtype)
-    policy = transformers.AutoModelForCausalLM.from_pretrained(
-        config.model.name_or_path, cache_dir=get_local_dir(config.local_dirs), low_cpu_mem_usage=True,
-        torch_dtype=policy_dtype, **model_kwargs)
-    disable_dropout(policy)
 
 
-    if config.model.archive is not None:
-        state_dict = torch.load(config.model.archive, map_location='cpu')
-        step, metrics = state_dict['step_idx'], state_dict['metrics']
-        print(
-            f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
-        policy.load_state_dict(state_dict['state'])
+def main():
+    parser = argparse.ArgumentParser(description='Process model paths.')
+    parser.add_argument('--base_model_path', type=str, required=True, help='Path to the base model')
+    parser.add_argument('--src_model_path', type=str, required=True, help='Path to the source model')
+    parser.add_argument('--dst_model_path', type=str, required=True, help='Path to the destination model')
+    parser.add_argument('--dst_dtype', choices=['float16', 'bfloat16', 'auto'], default='auto')
+    args = parser.parse_args()
 
-        step=re.search("step-\d{1,}",config.model.archive)
-        print(config.model)
-        model_name=re.split("/",config.model.name_or_path)[-1]
-        policy.save_pretrained('/private/home/liudianqing/tmp_model_path/pythias/'+config.exp_name,safe_serialization=False)
+    model_kwargs = {'device_map': 'cpu'}
+    policy = transformers.AutoModelForCausalLM.from_pretrained(args.base_model_path, low_cpu_mem_usage=True, **model_kwargs)
+    state_dict = torch.load(args.src_model_path, map_location='cpu')
+    policy.load_state_dict(state_dict['state'])
+
+    if args.dst_dtype == 'bfloat16':
+        policy = policy.bfloat16()
+    elif args.dst_dtype == 'float16':
+        policy = policy.half()
+    else:
+        pass
+
+    policy.save_pretrained(args.dst_model_path, safe_serialization=False)
+    os.system(f'cp {args.base_model_path}/*token* {args.dst_model_path}/')
 
 if __name__ == '__main__':
     main()
