@@ -438,9 +438,6 @@ def tokenize_batch_element(prompt: str, chosen: str, rejected: str, truncation_m
     chosen_sequence_tokens['labels'][:len(prompt_tokens['input_ids'])] = [-100] * len(prompt_tokens['input_ids'])
     rejected_sequence_tokens['labels'] = rejected_sequence_tokens['input_ids'][:]
     rejected_sequence_tokens['labels'][:len(prompt_tokens['input_ids'])] = [-100] * len(prompt_tokens['input_ids'])
-    prompt_sequence_tokens = {k: prompt_tokens[k] for k in prompt_tokens}
-    prompt_sequence_tokens['labels'] = prompt_sequence_tokens['input_ids'][:]
-    prompt_sequence_tokens['labels'][:len(prompt_tokens['input_ids'])] = [-100] * len(prompt_tokens['input_ids'])
 
     batch = {}
 
@@ -450,7 +447,7 @@ def tokenize_batch_element(prompt: str, chosen: str, rejected: str, truncation_m
     batch['chosen_response_only'] = chosen
     batch['rejected_response_only'] = rejected
 
-    for k, toks in {'chosen': chosen_sequence_tokens, 'rejected': rejected_sequence_tokens, 'prompt': prompt_sequence_tokens}.items():
+    for k, toks in {'chosen': chosen_sequence_tokens, 'rejected': rejected_sequence_tokens, 'prompt': prompt_tokens}.items():
         for type_key, tokens in toks.items():
             if type_key == 'token_type_ids':
                 continue
