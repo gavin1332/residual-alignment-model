@@ -84,7 +84,7 @@ def main(config: DictConfig):
         config.model.name_or_path, cache_dir=get_local_dir(config.local_dirs), low_cpu_mem_usage=True, torch_dtype=policy_dtype, **model_kwargs)
     disable_dropout(policy)
 
-    if config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
+    if config.loss.name in {'dpo', 'ipo'}:
         print('building reference model')
         reference_model_dtype = getattr(torch, config.model.reference_dtype)
         reference_model = transformers.AutoModelForCausalLM.from_pretrained(
@@ -98,17 +98,19 @@ def main(config: DictConfig):
         # step, metrics = state_dict['step_idx'], state_dict['metrics']
         # print(f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
         # policy.load_state_dict(state_dict['state'])
-        # if config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
+        # if config.loss.name in {'dpo', 'ipo'}:
         #     reference_model.load_state_dict(state_dict['state'])
         # print('loaded pre-trained weights')
 
         policy = transformers.AutoModelForCausalLM.from_pretrained(
             config.model.archive, torch_dtype=policy_dtype, **model_kwargs)
         disable_dropout(policy)
-        if config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
+        if config.loss.name in {'dpo', 'ipo'}: # no dpo_our
             reference_model = transformers.AutoModelForCausalLM.from_pretrained(
                 config.model.archive, torch_dtype=reference_model_dtype, **model_kwargs)
             disable_dropout(reference_model)
+        else:
+            reference_model = None
 
     if 'FSDP' in config.trainer:
         world_size = torch.cuda.device_count()
