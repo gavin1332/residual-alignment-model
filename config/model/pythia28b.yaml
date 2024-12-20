@@ -1,4 +1,4 @@
-name_or_path: EleutherAI/pythia-6.9b
+name_or_path: /private/model/EleutherAI/pythia-2.8b-deduped
 tokenizer_name_or_path: null
 archive: null
 block_name: GPTNeoXLayer
