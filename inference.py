@@ -80,12 +80,39 @@ class SPARLogitsWarper(LogitsWarper):
 
     def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
         base_out = self.base_model(input_ids=input_ids, use_cache=True,
-                past_key_values=base_out.past_key_values if base_out else None)
-        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :],
-                top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
-        logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
-        return logits_warped, base_out
+                                   past_key_values=base_out.past_key_values if base_out else None)
 
+        import torch.nn.functional as F
+        # def js_div(a, b, reduction):
+        # #非标准JS散度，阈值0.3
+        #     return 0.5 * F.kl_div(F.log_softmax(a, dim=-1), F.softmax(b, dim=-1), reduction=reduction) + \
+        #            0.5 * F.kl_div(F.log_softmax(b, dim=-1), F.softmax(a, dim=-1), reduction=reduction)
+
+        def calculate_kl_divergence(probs_p, probs_q):
+            epsilon = 1e-10
+            probs_p = probs_p + epsilon
+            probs_q = probs_q + epsilon
+            kl_div = F.kl_div(probs_q.log(), probs_p, reduction='sum')  # 计算KL散度
+            return kl_div
+
+        def calculate_js_divergence(logits_p, logits_q):
+            p = F.softmax(logits_p, dim=-1)
+            q = F.softmax(logits_q, dim=-1)
+            m = 0.5 * (p + q)
+            kl_pm = calculate_kl_divergence(p, m)
+            kl_qm = calculate_kl_divergence(q, m)
+            js_div = 0.5 * (kl_pm + kl_qm)
+            return js_div
+
+        js = calculate_js_divergence(base_out.logits[:, -1, :], logits)#, reduction='sum')
+        # print(js)
+        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :],
+                                            top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
+        if js.item() <= 0.1:
+            logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
+        else:
+            logits_warped = base_logits
+        return logits_warped, base_out
 
 class MDSLogitsWarper(LogitsWarper):
     def __init__(self, base_model, base_temperature: float, temperature: float):
