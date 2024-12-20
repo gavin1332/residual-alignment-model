@@ -105,7 +105,7 @@ def main(config: DictConfig):
         policy = transformers.AutoModelForCausalLM.from_pretrained(
             config.model.archive, torch_dtype=policy_dtype, **model_kwargs)
         disable_dropout(policy)
-        if config.loss.name in {'dpo_norm', 'dpo_our', 'ipo'}:
+        if config.loss.name in {'dpo', 'ipo', 'dpo_our'}:
             reference_model = transformers.AutoModelForCausalLM.from_pretrained(
                 config.model.archive, torch_dtype=reference_model_dtype, **model_kwargs)
             disable_dropout(reference_model)
