@@ -1,10 +1,14 @@
-#EXP_NAME=pythia28b_hh_dpo_our_b32_e2
-#EXP_NAME=pythia12b_hh_sft_b32
-EXP_NAME=pythia12b_hh_dpo_b32_e2
-STEP=step-160000
+#!/bin/bash
 
-python -u pt2bin.py --base_model_path /private/model/EleutherAI/pythia-12b-deduped \
-    --src_model_path .cache/root/${EXP_NAME}/$STEP/policy.pt \
-    --dst_model_path .cache/root/hf/${EXP_NAME}/$STEP \
-    --dst_dtype bfloat16
+set -eux
 
+BASE_MODEL=EleutherAI/pythia-2.8b-deduped
+EXP_NAME=pythia28b_hh_dpo_our_b32_e2
+
+STEP_LIST=("step-160000" "LATEST")
+for step in "${STEP_LIST[@]}"; do
+    python -u pt2bin.py --base_model_path /private/model/$BASE_MODEL \
+            --src_model_path .cache/root/${EXP_NAME}/$step/policy.pt \
+            --dst_model_path .cache/root/hf/${EXP_NAME}/$step \
+            --dst_dtype bfloat16
+done

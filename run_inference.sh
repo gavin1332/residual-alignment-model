@@ -27,23 +27,28 @@ if [ ! -f $INPUT_FILE ]; then
 fi
 
 TEMPLATE_NAME=claude
-#MODEL=/private/home/liuyi/code/exp/mine/.cache/root/hf/pythia12b_hh_dpo_b32_e2/step-160000
-#MODEL=/private/home/liuyi/code/exp/mine/.cache/root/hf/pythia12b_hh_sft_b32
-MODEL=/private/home/liuyi/code/exp/mine/.cache/root/hf/pythia28b_hh_dpo_our_b32_e2/step-160000
-BASE_MODEL=/private/home/liuyi/code/exp/mine/.cache/root/hf/pythia12b_hh_sft_b32
+INPUT_KEY=instruction
+OUTPUT_KEY=output
+
+WORK_DIR=/private/home/liuyi/code/exp/mine
+MODEL=$WORK_DIR/.cache/root/hf/pythia28b_hh_dpo_our_b32_e2/LATEST
+BASE_MODEL=$WORK_DIR/.cache/root/hf/pythia12b_hh_sft_b32.1221/step-160000
 
 if [ -z $BASE_MODEL]; then
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
                            --data_file $INPUT_FILE \
+                           --json_format \
                            --output_file $OUTPUT_FILE \
+                           --input_key $INPUT_KEY \
+                           --output_key $OUTPUT_KEY \
                            --temperature 0.8 \
                            --top_p 0.9 \
                            --max_new_tokens 512 \
-                           --repetition_penalty 1.02 \
+                           --repetition_penalty 1.2
 
 else
-    SAMPLE_MODE=mds
+    SAMPLE_MODE=spar
     BASE_TEMPERATURE=1.0
     BASE_TOP_P=0.9
     TEMPERATURE=0.9
@@ -53,12 +58,15 @@ else
         BASE_TEMPERATURE=0.8
         TEMPERATURE=1.1
         TOP_P=0.9
-        REPETITION_PENALTY=1.02
+        REPETITION_PENALTY=1.2
     fi
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
                            --data_file $INPUT_FILE \
+                           --json_format \
                            --output_file $OUTPUT_FILE \
+                           --input_key $INPUT_KEY \
+                           --output_key $OUTPUT_KEY \
                            --temperature $TEMPERATURE \
                            --top_p $TOP_P \
                            --max_new_tokens 512 \
@@ -68,6 +76,6 @@ else
                            --base_top_k -1 \
                            --base_top_p $BASE_TOP_P \
                            --base_temperature $BASE_TEMPERATURE \
-                           --resize_emb \
+                           --resize_emb
 
 fi

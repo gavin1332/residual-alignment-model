@@ -12,7 +12,7 @@ INPUT_FILE=$1
 OUTPUT_FILE=$2
 DEVICES=$3
 
-ID=$(date +%s)
+ID=id
 if [[ $# == 4 ]]; then
     ID=$4
 fi
