@@ -31,14 +31,13 @@ INPUT_KEY=instruction
 OUTPUT_KEY=output
 
 WORK_DIR=/private/home/liuyi/code/exp/mine
-MODEL=$WORK_DIR/.cache/root/hf/pythia28b_hh_dpo_our_b32_e2/LATEST
+MODEL=$WORK_DIR/.cache/root/hf/pythia28b_hh_dpo_our_b32_e2/step-160000
 BASE_MODEL=$WORK_DIR/.cache/root/hf/pythia12b_hh_sft_b32.1221/step-160000
 
-if [ -z $BASE_MODEL]; then
+if [ -z $BASE_MODEL ]; then
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
                            --data_file $INPUT_FILE \
-                           --json_format \
                            --output_file $OUTPUT_FILE \
                            --input_key $INPUT_KEY \
                            --output_key $OUTPUT_KEY \
@@ -49,13 +48,15 @@ if [ -z $BASE_MODEL]; then
 
 else
     SAMPLE_MODE=spar
-    BASE_TEMPERATURE=1.0
-    BASE_TOP_P=0.9
-    TEMPERATURE=0.9
-    TOP_P=0.9
-    REPETITION_PENALTY=1.2
-    if [ "$SAMPLE_MODE" = "mds" ]; then
+    if [ "$SAMPLE_MODE" = "spar" ]; then
+        BASE_TEMPERATURE=1.0
+        BASE_TOP_P=0.9
+        TEMPERATURE=0.9
+        TOP_P=0.9
+        REPETITION_PENALTY=1.2
+    elif [ "$SAMPLE_MODE" = "mds" ]; then
         BASE_TEMPERATURE=0.8
+        BASE_TOP_P=0.9
         TEMPERATURE=1.1
         TOP_P=0.9
         REPETITION_PENALTY=1.2
@@ -63,7 +64,6 @@ else
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
                            --data_file $INPUT_FILE \
-                           --json_format \
                            --output_file $OUTPUT_FILE \
                            --input_key $INPUT_KEY \
                            --output_key $OUTPUT_KEY \
