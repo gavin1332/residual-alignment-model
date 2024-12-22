@@ -550,7 +550,7 @@ def main():
             print(json.dumps(example, ensure_ascii=False), file=file_out, flush=True)
 
     if not flush: # to json format
-        json.dump(examples, ensure_ascii=False, file=file_out, indent=4)
+        json.dump(examples, ensure_ascii=False, file=file_out, indent=2)
 
     info(f'save to {args.output_file}')
 
