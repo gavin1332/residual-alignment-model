@@ -47,35 +47,30 @@ if [ -z $BASE_MODEL ]; then
                            --repetition_penalty 1.2
 
 else
+    SAMPLE_ARGS="--max_new_tokens 512 --base_top_k -1"
     SAMPLE_MODE=spar
     if [ "$SAMPLE_MODE" = "spar" ]; then
-        BASE_TEMPERATURE=1.0
-        BASE_TOP_P=0.9
-        TEMPERATURE=0.9
-        TOP_P=0.9
-        REPETITION_PENALTY=1.2
+        SAMPLE_ARGS="$SAMPLE_ARGS --base_temperature 0.8 \
+                                  --base_top_p 0.9 \
+                                  --temperature 0.9 \
+                                  --top_p 0.9 \
+                                  --repetition_penalty 1.05"
     elif [ "$SAMPLE_MODE" = "mds" ]; then
-        BASE_TEMPERATURE=0.8
-        BASE_TOP_P=0.9
-        TEMPERATURE=1.1
-        TOP_P=0.9
-        REPETITION_PENALTY=1.2
+        SAMPLE_ARGS="$SAMPLE_ARGS --base_temperature 1.0 \
+                                  --temperature 1.0 \
+                                  --top_p 0.9 \
+                                  --repetition_penalty 1.2"
     fi
+
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
                            --data_file $INPUT_FILE \
                            --output_file $OUTPUT_FILE \
                            --input_key $INPUT_KEY \
                            --output_key $OUTPUT_KEY \
-                           --temperature $TEMPERATURE \
-                           --top_p $TOP_P \
-                           --max_new_tokens 512 \
-                           --repetition_penalty $REPETITION_PENALTY \
                            --base_model $BASE_MODEL \
                            --sample_mode $SAMPLE_MODE \
-                           --base_top_k -1 \
-                           --base_top_p $BASE_TOP_P \
-                           --base_temperature $BASE_TEMPERATURE \
-                           --resize_emb
+                           --resize_emb \
+                           $SAMPLE_ARGS
 
 fi
