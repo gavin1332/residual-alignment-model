@@ -394,16 +394,20 @@ def load_model(model_path: str, dtype: str='bfloat16', lora_path: str=None, toke
 
 def main():
     parser = argparse.ArgumentParser()
+    # model
     parser.add_argument('--model', type=str, required=True)
     parser.add_argument('--lora_model', type=str, help='If None, perform inference on the base model')
     parser.add_argument('--dtype', choices=['float16', 'bfloat16', 'auto'], default='auto')
     parser.add_argument('--tokenizer_path', type=str)
     parser.add_argument('--template_name', type=str, required=True, help='Prompt template name, such as "qwen2", "llama2". Refers to conversation.py')
-    parser.add_argument('--data_file', type=str, help='A file that contains instructions (one instruction per line)')
-    parser.add_argument('--output_file', type=str, help='output file, default to sys.stdout')
     parser.add_argument('--resize_emb', action='store_true', help='Whether to resize model token embeddings')
+    # corpus
+    parser.add_argument('--data_file', type=str, help='A file that contains instructions')
+    parser.add_argument('--output_file', type=str, help='output file, default to sys.stdout')
     parser.add_argument('--response_prefix', type=str, default='')
     parser.add_argument('--return_prefix', action='store_true')
+    parser.add_argument('--input_key', type=str, default='prompt')
+    parser.add_argument('--output_key', type=str, default='output')
     # generate config
     parser.add_argument('--temperature', type=float, default=1.0)
     parser.add_argument('--top_p', type=float, default=1.0)
@@ -419,6 +423,44 @@ def main():
     parser.add_argument('--base_temperature', type=float, default=1.0)
     args = parser.parse_args()
     info(args)
+
+    # prepare data
+    if args.data_file is None:
+        examples = [{args.input_key: 'How are you?'},
+                    {args.input_key: 'Where are you from?'}]
+    else:
+        with open(args.data_file, encoding='utf-8') as fin:
+            data_ext = os.path.splitext(args.data_file)[1]
+            if data_ext == '.json':
+                examples = json.load(fin)
+            elif data_ext == '.jsonl':
+                examples = [json.loads(line) for line in fin]
+            else:
+                try:
+                    examples = [json.loads(line) for line in fin]
+                except json.JSONDecodeError as e:
+                    fin.seek(0)
+                    examples = json.load(fin)
+
+    info('first 10 examples:')
+    for example in examples[:10]:
+        info(example)
+
+    if args.output_file:
+        file_out = open(args.output_file, 'w', encoding='utf-8')
+        output_ext = os.path.splitext(args.output_file)[1]
+        # write to json file could not flush one line per example
+        flush = False if output_ext == '.json' else True
+    else:
+        file_out = sys.stdout
+        flush = True
+
+    prompt_template = get_conv_template(args.template_name)
+    print(f'prompt_template:\n{prompt_template}')
+
+    stop_str = prompt_template.sep + prompt_template.roles[0]
+    stop_str_display = stop_str.replace("\n", "\\n")
+    print(f'stop_str: {stop_str_display}')
 
     device = torch.device(0)
 
@@ -446,29 +488,6 @@ def main():
                 base_model.resize_token_embeddings(tokenzier_vocab_size)
                 model.resize_token_embeddings(tokenzier_vocab_size)
 
-    # test data
-    if args.data_file is None:
-        examples = ['How are you?', 'Where are you from?']
-    else:
-        with open(args.data_file, encoding='utf-8') as f:
-            examples = [json.loads(line)['prompt'] for line in f]
-
-        info('first 10 examples:')
-        for example in examples[:10]:
-            info(example)
-
-    prompt_template = get_conv_template(args.template_name)
-    print(f'prompt_template:\n{prompt_template}')
-
-    stop_str = prompt_template.sep + prompt_template.roles[0]
-    stop_str_display = stop_str.replace("\n", "\\n")
-    print(f'stop_str: {stop_str_display}')
-
-    if args.output_file:
-        file_out = open(args.output_file, 'w', encoding='utf-8')
-    else:
-        file_out = sys.stdout
-
     logits_warper = None
     if base_model:
         if args.sample_mode == 'spar':
@@ -486,7 +505,7 @@ def main():
     for i, example in enumerate(tqdm(examples, desc='Generating outputs')):
         conv = get_conv_template(args.template_name)
         # single round
-        conv.append_message(conv.roles[0], example)
+        conv.append_message(conv.roles[0], example[args.input_key])
         conv.append_message(conv.roles[1], args.response_prefix if args.response_prefix else None)
         prompt = conv.get_prompt()
 
@@ -526,8 +545,12 @@ def main():
         if args.return_prefix:
             respose = args.response_prefix + response
 
-        entry = dict(prompt=example, output=response)
-        print(json.dumps(entry, ensure_ascii=False), file=file_out, flush=True)
+        example[args.output_key] = response
+        if flush: # to jsonl format or sys.stdout
+            print(json.dumps(example, ensure_ascii=False), file=file_out, flush=True)
+
+    if not flush: # to json format
+        json.dump(examples, ensure_ascii=False, file=file_out, indent=2)
 
     info(f'save to {args.output_file}')
 
