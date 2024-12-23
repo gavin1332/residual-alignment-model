@@ -1,6 +1,3 @@
-#EXP_NAME=pythia12b_hh_sft_b32
-#MODEL=pythia12b
-
 EXP_NAME=pythia28b_hh_sft_b32
 MODEL=pythia28b
 
