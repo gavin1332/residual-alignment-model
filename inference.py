@@ -408,6 +408,7 @@ def main():
     parser.add_argument('--return_prefix', action='store_true')
     parser.add_argument('--input_key', type=str, default='prompt')
     parser.add_argument('--output_key', type=str, default='output')
+    parser.add_argument('--update_values', type=str, help='A json-dict string for example key-value updating, especially used for generator setting in alcapa_eval.')
     # generate config
     parser.add_argument('--temperature', type=float, default=1.0)
     parser.add_argument('--top_p', type=float, default=1.0)
@@ -429,7 +430,7 @@ def main():
         examples = [{args.input_key: 'How are you?'},
                     {args.input_key: 'Where are you from?'}]
     else:
-        with open(args.data_file, encoding='utf-8') as fin:
+        with open(args.data_file) as fin:
             data_ext = os.path.splitext(args.data_file)[1]
             if data_ext == '.json':
                 examples = json.load(fin)
@@ -447,7 +448,7 @@ def main():
         info(example)
 
     if args.output_file:
-        file_out = open(args.output_file, 'w', encoding='utf-8')
+        file_out = open(args.output_file, 'w')
         output_ext = os.path.splitext(args.output_file)[1]
         # write to json file could not flush one line per example
         flush = False if output_ext == '.json' else True
@@ -502,6 +503,9 @@ def main():
   
     info(f'Start inference at device {device} ...')
 
+    if args.update_values:
+        update_values = json.loads(args.update_values)
+
     for i, example in enumerate(tqdm(examples, desc='Generating outputs')):
         conv = get_conv_template(args.template_name)
         # single round
@@ -546,11 +550,15 @@ def main():
             respose = args.response_prefix + response
 
         example[args.output_key] = response
+        if args.update_values:
+            for k, v in update_values.items():
+                example[k] = v
+
         if flush: # to jsonl format or sys.stdout
-            print(json.dumps(example, ensure_ascii=False), file=file_out, flush=True)
+            print(json.dumps(example), file=file_out, flush=True)
 
     if not flush: # to json format
-        json.dump(examples, ensure_ascii=False, file=file_out, indent=2)
+        json.dump(examples, file=file_out, indent=2)
 
     info(f'save to {args.output_file}')
 
