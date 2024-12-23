@@ -33,10 +33,10 @@ def main():
 
     with open(args.output_file, 'w') as fout:
         if output_ext == '.json':
-            json.dump(data, fout, ensure_ascii=False, indent=2)
+            json.dump(data, fout, indent=2)
         else:
             for item in data:
-                print(json.dumps(item, ensure_ascii=False), file=fout)
+                print(json.dumps(item), file=fout)
 
 
 if __name__ == "__main__":
