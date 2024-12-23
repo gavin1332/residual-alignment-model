@@ -12,9 +12,9 @@ bash pt2bin.sh
 
 # inference. The "some_id" is optional for distinguishing temporary files of concurrent runs.
 ## single GPU
-bash run_inference.sh evaluate/alpaca_eval/alpaca_eval_ques.json output.json 0 [some_id]
+bash run_inference.sh data/alpaca_eval_ques.json output.json 0 [some_id]
 ## multiple GPU
-bash localrun_inference.sh evaluate/alpaca_eval/alpaca_eval_ques.json output.json 0,1,2,3 [some_id]
+bash localrun_inference.sh data/alpaca_eval_ques.json output.json 0,1,2,3 [some_id]
 
 # run alpaca_eval
 ## if json format is required
