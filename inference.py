@@ -414,7 +414,7 @@ def main():
     parser.add_argument('--top_p', type=float, default=1.0)
     parser.add_argument('--top_k', type=int, default=-1)
     parser.add_argument('--max_new_tokens', type=int, default=512)
-    parser.add_argument('--context_len', type=int, default=1024, help='Total number of tokens in prompt and generated text')
+    parser.add_argument('--max_prompt_length', type=int, default=512, help='The maximum number of tokens in prompt')
     parser.add_argument('--repetition_penalty', type=float, default=1.0)
     # arguments for sPAR and MDS
     parser.add_argument('--base_model', type=str, default=None)
@@ -536,7 +536,7 @@ def main():
                 tokenizer=tokenizer,
                 params=gen_params,
                 device=device,
-                context_len=args.context_len,
+                context_len=args.max_prompt_length + args.max_new_tokens,
                 stream_interval=5, # force this for-loop running less iterations
                 logits_warper=logits_warper):
             pass

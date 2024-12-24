@@ -34,6 +34,7 @@ WORK_DIR=/private/home/liuyi/code/exp/mine
 MODEL=$WORK_DIR/.cache/root/hf/pythia28b_hh_dpo_our_b32_e2/step-160000
 BASE_MODEL=$WORK_DIR/.cache/root/hf/pythia12b_hh_sft_b32.1221/step-160000
 
+SAMPLE_ARGS="--max_prompt_length 512 --max_new_tokens 512"
 if [ -z $BASE_MODEL ]; then
     python -u inference.py --model $MODEL \
                            --template_name $TEMPLATE_NAME \
@@ -43,15 +44,14 @@ if [ -z $BASE_MODEL ]; then
                            --output_key $OUTPUT_KEY \
                            --temperature 0.8 \
                            --top_p 0.9 \
-                           --max_new_tokens 512 \
-                           --repetition_penalty 1.2
-
+                           --repetition_penalty 1.02 \
+                           $SAMPLE_ARGS
 else
-    SAMPLE_ARGS="--max_new_tokens 512 --base_top_k -1"
+    SAMPLE_ARGS="$SAMPLE_ARGS --base_top_k -1"
     SAMPLE_MODE=spar
     if [ "$SAMPLE_MODE" = "spar" ]; then
         SAMPLE_ARGS="$SAMPLE_ARGS --base_temperature 0.8 \
-                                  --base_top_p 0.9 \
+                                  --base_top_p 1.0 \
                                   --temperature 0.9 \
                                   --top_p 0.9 \
                                   --repetition_penalty 1.05"
@@ -72,5 +72,4 @@ else
                            --sample_mode $SAMPLE_MODE \
                            --resize_emb \
                            $SAMPLE_ARGS
-
 fi
