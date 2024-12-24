@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if [[ $# != 1 ]]; then
-    echo "Usage: bash $0 model_output"
+if [[ $# != 1 && $# != 2 ]]; then
+    echo "Usage: bash $0 model_output [reference_output]"
     exit
 fi
 
@@ -17,5 +17,9 @@ ANNOTATOR=alpaca_eval_qwen25_72b_fn
 
 export OPENAI_API_KEY=EMPTY
 export https_proxy=10.211.30.6:8888
-alpaca_eval --model_outputs $MODEL_OUTPUT --annotators_config $CONF_PREFIX/$ANNOTATOR
 
+if [[ $# == 2 ]]; then
+    alpaca_eval --model_outputs $MODEL_OUTPUT --reference_outputs $2 --annotators_config $CONF_PREFIX/$ANNOTATOR
+else
+    alpaca_eval --model_outputs $MODEL_OUTPUT --annotators_config $CONF_PREFIX/$ANNOTATOR
+fi
