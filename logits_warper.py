@@ -34,6 +34,22 @@ class LogitsWarper:
         raise NotImplementedError('Not implemented yet.')
 
 
+class SparLogitsWarper(LogitsWarper):
+    def __init__(self, base_model, top_k: int, top_p: float, temperature: float):
+        self.base_model = base_model
+        self.top_k = top_k
+        self.top_p = top_p
+        self.temperature = temperature
+
+    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
+        base_out = self.base_model(input_ids=input_ids, use_cache=True,
+                                   past_key_values=base_out.past_key_values if base_out else None)
+
+        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
+        logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
+        return logits_warped, base_out
+
+
 class SparJsLogitsWarper(LogitsWarper):
     def __init__(self, base_model, top_k: int, top_p: float, temperature: float, js_div_threshold: float):
         self.base_model = base_model
@@ -69,8 +85,8 @@ class SparJsLogitsWarper(LogitsWarper):
 
         js = calculate_js_divergence(base_out.logits[:, -1, :], logits)#, reduction='sum')
         # print(js)
-        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :],
-                                            top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
+        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k,
+                top_p=self.top_p, temperature=self.temperature)
         if js.item() <= self.js_div_threshold:
             logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
         else:
@@ -92,36 +108,20 @@ class SparKlLogitsWarper(LogitsWarper):
 
         base_logits = base_out.logits[:, -1, :]
         base_probs = F.softmax(base_logits, dim=-1)
-        expert_logprobs = F.log_softmax(logits, dim=-1)
-        # higher base_probs -> higher expert_probs, but no need for vice versa
-        kl_div = F.kl_div(expert_logprobs, base_probs, reduction='sum')
+        logprobs = F.log_softmax(logits, dim=-1)
+        # higher base_probs -> higher probs, but no need for vice versa
+        kl_div = F.kl_div(logprobs, base_probs, reduction='sum')
 
-        base_logits = top_k_top_p_filtering(base_logits, top_k=self.top_k, top_p=self.top_p,
-                temperature=self.temperature)
         if kl_div.item() <= self.kl_div_threshold:
+            base_logits = top_k_top_p_filtering(base_logits, top_k=self.top_k, top_p=self.top_p,
+                    temperature=self.temperature)
             logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
         else:
             logits_warped = base_logits
         return logits_warped, base_out
 
 
-class SparLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, top_k: int, top_p: float, temperature: float):
-        self.base_model = base_model
-        self.top_k = top_k
-        self.top_p = top_p
-        self.temperature = temperature
-
-    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
-        base_out = self.base_model(input_ids=input_ids, use_cache=True,
-                                   past_key_values=base_out.past_key_values if base_out else None)
-
-        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
-        logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
-        return logits_warped, base_out
-
-
-class MDSLogitsWarper(LogitsWarper):
+class MdsLogitsWarper(LogitsWarper):
     def __init__(self, base_model, base_temperature: float, expert_temperature: float):
         self.base_model = base_model
         self.base_temperature = base_temperature
@@ -138,5 +138,34 @@ class MDSLogitsWarper(LogitsWarper):
 
         epsilon = 1e-10
         logits_warped = torch.log(probs + epsilon)
+        return logits_warped, base_out
+
+
+class MdsKlLogitsWarper(LogitsWarper):
+    def __init__(self, base_model, base_temperature: float, expert_temperature: float, kl_div_threshold: float):
+        self.base_model = base_model
+        self.base_temperature = base_temperature
+        self.expert_temperature = expert_temperature
+        self.kl_div_threshold = kl_div_threshold
+
+    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
+        base_out = self.base_model(input_ids=input_ids, use_cache=True,
+                past_key_values=base_out.past_key_values if base_out else None)
+
+        base_logits = base_out.logits[:, -1, :]
+        base_probs = F.softmax(base_logits, dim=-1)
+        logprobs = F.log_softmax(logits / self.expert_temperature, dim=-1)
+        # higher base_probs -> higher expert_probs, but no need for vice versa
+        kl_div = F.kl_div(logprobs, base_probs, reduction='sum')
+
+        if kl_div.item() <= self.kl_div_threshold:
+            probs_mul = base_probs * logprobs.exp()
+            probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
+
+            epsilon = 1e-10
+            logits_warped = torch.log(probs + epsilon)
+        else:
+            logits_warped = base_logits
+
         return logits_warped, base_out
 

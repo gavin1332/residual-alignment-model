@@ -17,10 +17,7 @@ bash run_inference.sh data/alpaca_eval_ques.json output.json 0 [some_id]
 bash localrun_inference.sh data/alpaca_eval_ques.json output.json 0,1,2,3 [some_id]
 
 # run alpaca_eval
-## if json format is required
-bash run_eval.sh output.json 1
-## else use json-lines format
-bash run_eval.sh output.json
+bash run_eval.sh -i model_output.json [-r reference_output.json] [-m max_instances] [-o output_path] [-k online_key]
 ```
 
 # DPO: Direct Preference Optimization

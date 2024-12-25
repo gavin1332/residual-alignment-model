@@ -39,7 +39,8 @@ from logits_warper import (
     SparJsLogitsWarper,
     SparKlLogitsWarper,
     SparLogitsWarper,
-    MDSLogitsWarper,
+    MdsLogitsWarper,
+    MdsKlLogitsWarper,
 )
 
 
@@ -331,7 +332,7 @@ def main():
     parser.add_argument('--repetition_penalty', type=float, default=1.0)
     # arguments for sPAR and MDS
     parser.add_argument('--base_model', type=str, default=None)
-    parser.add_argument('--sample_mode', choices=['spar', 'mds', 'sparv1', 'sparv2'], default='spar')
+    parser.add_argument('--sample_mode', choices=['spar', 'mds', 'spar_js', 'spar_kl'], default='spar')
     parser.add_argument('--base_top_k', type=int, default=-1)
     parser.add_argument('--base_top_p', type=float, default=0.95)
     parser.add_argument('--base_temperature', type=float, default=1.0)
@@ -407,7 +408,7 @@ def main():
     logits_warper = None
     if base_model:
         if args.sample_mode == 'spar':
-            logits_warper = SPARLogitsWarper(base_model,
+            logits_warper = SparLogitsWarper(base_model,
                     top_k=args.base_top_k, top_p=args.base_top_p, temperature=args.base_temperature)
         elif args.sample_mode == 'spar_js':
             logits_warper = SparJsLogitsWarper(base_model, top_k=args.base_top_k, top_p=args.base_top_p,
@@ -416,8 +417,11 @@ def main():
             logits_warper = SparKlLogitsWarper(base_model, top_k=args.base_top_k, top_p=args.base_top_p,
                     temperature=args.base_temperature, kl_div_threshold=args.div_threshold)
         elif args.sample_mode == 'mds':
-            logits_warper = MDSLogitsWarper(base_model,
-                    base_temperature=args.base_temperature, temperature=args.expert_temperature)
+            logits_warper = MdsLogitsWarper(base_model,
+                    base_temperature=args.base_temperature, expert_temperature=args.expert_temperature)
+        elif args.sample_mode == 'mds_kl':
+            logits_warper = MdsLogitsWarper(base_model,
+                    base_temperature=args.base_temperature, expert_temperature=args.expert_temperature)
         else:
             raise NotImplementedError('Not supported yet.')
   
@@ -478,7 +482,7 @@ def main():
             print(json.dumps(example), file=file_out, flush=True)
 
     if not flush: # to json format
-        json.dump(examples, file=file_out, indent=2)
+        json.dump(examples, file_out, indent=2)
 
     info(f'save to {args.output_file}')
 
