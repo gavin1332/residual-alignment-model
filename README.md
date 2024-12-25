@@ -17,7 +17,17 @@ bash run_inference.sh data/alpaca_eval_ques.json output.json 0 [some_id]
 bash localrun_inference.sh data/alpaca_eval_ques.json output.json 0,1,2,3 [some_id]
 
 # run alpaca_eval
-bash run_eval.sh -i model_output.json [-r reference_output.json] [-m max_instances] [-o output_path] [-k online_key]
+bash run_eval.sh -i model_output.json [-r reference_output.json] [-m max_instances] [-o output_path] [-c client_config]
+```
+
+client_config是AlpacaEval的配置，说明请参考：(AlpacaEval client configs)[https://github.com/tatsu-lab/alpaca_eval/tree/main/client_configs]
+
+应用中需要配置OpenAI API的内容如下：
+
+```
+default:
+    - api_key: "<your OpenAI API key here>"
+      base_url: "<other base url>"
 ```
 
 # DPO: Direct Preference Optimization
