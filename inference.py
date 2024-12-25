@@ -332,7 +332,7 @@ def main():
     parser.add_argument('--repetition_penalty', type=float, default=1.0)
     # arguments for sPAR and MDS
     parser.add_argument('--base_model', type=str, default=None)
-    parser.add_argument('--sample_mode', choices=['spar', 'mds', 'spar_js', 'spar_kl'], default='spar')
+    parser.add_argument('--sample_mode', choices=['spar', 'mds', 'spar_js', 'spar_kl', 'mds_kl'], default='spar')
     parser.add_argument('--base_top_k', type=int, default=-1)
     parser.add_argument('--base_top_p', type=float, default=0.95)
     parser.add_argument('--base_temperature', type=float, default=1.0)
