@@ -5,8 +5,8 @@ import os
 
 def main():
     parser = argparse.ArgumentParser(description='Convert between JSON and JSON Lines formats.')
-    parser.add_argument('--input_file', '-i', type=str, help='Path to the input file.')
-    parser.add_argument('--output_file', '-o', type=str, help='Path to the output file.')
+    parser.add_argument('--input_file', '-i', type=str, required=True, help='Path to the input file.')
+    parser.add_argument('--output_file', '-o', type=str, required=True, help='Path to the output file.')
     args = parser.parse_args()
 
     if not os.path.exists(args.input_file):
@@ -33,10 +33,10 @@ def main():
 
     with open(args.output_file, 'w') as fout:
         if output_ext == '.json':
-            json.dump(data, fout, ensure_ascii=False, indent=2)
+            json.dump(data, fout, indent=2)
         else:
             for item in data:
-                print(json.dumps(item, ensure_ascii=False), file=fout)
+                print(json.dumps(item), file=fout)
 
 
 if __name__ == "__main__":
