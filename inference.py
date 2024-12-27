@@ -34,104 +34,18 @@ from fastchat.utils import is_partial_stop, is_sentence_complete
 from peft import PeftModel
 from tqdm import tqdm
 
+from logits_warper import (
+    LogitsWarper,
+    SparJsLogitsWarper,
+    SparKlLogitsWarper,
+    SparLogitsWarper,
+    MdsLogitsWarper,
+    MdsKlLogitsWarper,
+)
+
 
 def info(message):
     print(message, file=sys.stderr)
-
-
-def top_k_top_p_filtering(logits, top_k: int, top_p: float, temperature: float=1.0, filter_value: float=-float("Inf"), min_tokens_to_keep: int=1):
-    if top_k > 0:
-        top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))  # Safety check
-        # Remove all tokens with a probability less than the last token of the top-k
-        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-        logits[indices_to_remove] = filter_value
-
-    if top_p < 1.0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits / temperature, dim=-1), dim=-1)
-
-        # Remove tokens with cumulative probability above the threshold (token with 0 are kept)
-        sorted_indices_to_remove = cumulative_probs > top_p
-        if min_tokens_to_keep > 1:
-            # Keep at least min_tokens_to_keep (set to min_tokens_to_keep-1 because we add the first one below)
-            sorted_indices_to_remove[..., :min_tokens_to_keep] = 0 
-        # Shift the indices to the right to keep also the first token above the threshold
-        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-        sorted_indices_to_remove[..., 0] = 0 
-
-        # scatter sorted tensors to original indexing
-        indices_to_remove = sorted_indices_to_remove.scatter(-1, sorted_indices, sorted_indices_to_remove)
-        logits[indices_to_remove] = filter_value
-
-    return logits
-
-
-class LogitsWarper:
-    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
-        raise NotImplementedError('Not implemented yet.')
-
-
-class SPARLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, top_k: int, top_p: float, temperature: float):
-        self.base_model = base_model
-        self.top_k = top_k
-        self.top_p = top_p
-        self.temperature = temperature
-
-    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
-        base_out = self.base_model(input_ids=input_ids, use_cache=True,
-                                   past_key_values=base_out.past_key_values if base_out else None)
-
-        import torch.nn.functional as F
-        # def js_div(a, b, reduction):
-        # #非标准JS散度，阈值0.3
-        #     return 0.5 * F.kl_div(F.log_softmax(a, dim=-1), F.softmax(b, dim=-1), reduction=reduction) + \
-        #            0.5 * F.kl_div(F.log_softmax(b, dim=-1), F.softmax(a, dim=-1), reduction=reduction)
-
-        def calculate_kl_divergence(probs_p, probs_q):
-            epsilon = 1e-10
-            probs_p = probs_p + epsilon
-            probs_q = probs_q + epsilon
-            kl_div = F.kl_div(probs_q.log(), probs_p, reduction='sum')  # 计算KL散度
-            return kl_div
-
-        def calculate_js_divergence(logits_p, logits_q):
-            p = F.softmax(logits_p, dim=-1)
-            q = F.softmax(logits_q, dim=-1)
-            m = 0.5 * (p + q)
-            kl_pm = calculate_kl_divergence(p, m)
-            kl_qm = calculate_kl_divergence(q, m)
-            js_div = 0.5 * (kl_pm + kl_qm)
-            return js_div
-
-        js = calculate_js_divergence(base_out.logits[:, -1, :], logits)#, reduction='sum')
-        # print(js)
-        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :],
-                                            top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
-        if js.item() <= 0.1:
-            logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
-        else:
-            logits_warped = base_logits
-        return logits_warped, base_out
-
-class MDSLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, base_temperature: float, temperature: float):
-        self.base_model = base_model
-        self.base_temperature = base_temperature
-        self.temperature = temperature
-
-    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
-        base_out = self.base_model(input_ids=input_ids, use_cache=True,
-                past_key_values=base_out.past_key_values if base_out else None)
-
-        base_probs = torch.nn.functional.softmax(base_out.logits[:, -1, :] / self.base_temperature, dim=-1)
-        probs = torch.nn.functional.softmax(logits / self.temperature, dim=-1)
-        probs_mul = base_probs * probs
-        probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
-
-        epsilon = 1e-10
-        logits_warped = torch.log(probs + epsilon)
-        return logits_warped, base_out
 
 
 def prepare_logits_processor(
@@ -375,8 +289,8 @@ def load_model(model_path: str, dtype: str='bfloat16', lora_path: str=None, toke
         torch_dtype = 'auto'
 
     config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path, config=config,
-            torch_dtype=torch_dtype, device_map='auto', trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_path, config=config, torch_dtype=torch_dtype,
+            device_map='auto', attn_implementation='flash_attention_2', trust_remote_code=True)
 
     if lora_path:
         info('Loading lora model ...')
@@ -418,10 +332,12 @@ def main():
     parser.add_argument('--repetition_penalty', type=float, default=1.0)
     # arguments for sPAR and MDS
     parser.add_argument('--base_model', type=str, default=None)
-    parser.add_argument('--sample_mode', choices=['spar', 'mds'], default='spar')
+    parser.add_argument('--sample_mode', choices=['spar', 'mds', 'spar_js', 'spar_kl', 'mds_kl'], default='spar')
     parser.add_argument('--base_top_k', type=int, default=-1)
     parser.add_argument('--base_top_p', type=float, default=0.95)
     parser.add_argument('--base_temperature', type=float, default=1.0)
+    parser.add_argument('--expert_temperature', type=float, default=1.0)
+    parser.add_argument('--div_threshold', type=float, default=0.1)
     args = parser.parse_args()
     info(args)
 
@@ -492,12 +408,20 @@ def main():
     logits_warper = None
     if base_model:
         if args.sample_mode == 'spar':
-            logits_warper = SPARLogitsWarper(base_model,
+            logits_warper = SparLogitsWarper(base_model,
                     top_k=args.base_top_k, top_p=args.base_top_p, temperature=args.base_temperature)
+        elif args.sample_mode == 'spar_js':
+            logits_warper = SparJsLogitsWarper(base_model, top_k=args.base_top_k, top_p=args.base_top_p,
+                    temperature=args.base_temperature, js_div_threshold=args.div_threshold)
+        elif args.sample_mode == 'spar_kl':
+            logits_warper = SparKlLogitsWarper(base_model, top_k=args.base_top_k, top_p=args.base_top_p,
+                    temperature=args.base_temperature, kl_div_threshold=args.div_threshold)
         elif args.sample_mode == 'mds':
-            logits_warper = MDSLogitsWarper(base_model,
-                    base_temperature=args.base_temperature, temperature=args.temperature)
-            args.temperature = 1.0
+            logits_warper = MdsLogitsWarper(base_model,
+                    base_temperature=args.base_temperature, expert_temperature=args.expert_temperature)
+        elif args.sample_mode == 'mds_kl':
+            logits_warper = MdsLogitsWarper(base_model,
+                    base_temperature=args.base_temperature, expert_temperature=args.expert_temperature)
         else:
             raise NotImplementedError('Not supported yet.')
   
@@ -558,7 +482,7 @@ def main():
             print(json.dumps(example), file=file_out, flush=True)
 
     if not flush: # to json format
-        json.dump(examples, file=file_out, indent=2)
+        json.dump(examples, file_out, indent=2)
 
     info(f'save to {args.output_file}')
 
