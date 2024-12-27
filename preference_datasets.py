@@ -213,12 +213,13 @@ def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
     print('done')
 
     def split_prompt_and_responses(ex):
-        prompt = ex['prompt']
         chosen_response = ex['chosen'].split("<|endoftext|>")[0]
         rejected_response = ex['rejected'].split("<|endoftext|>")[0]
-        prompt = prompt+"\nTL;DR:\n"
-        chosen_response = re.sub("TL;DR:  ","", chosen_response)
-        rejected_response = re.sub("TL;DR:  ", "", rejected_response)
+        # prompt = prompt+"\nTL;DR:\n"
+        # prompt = "Human: " + ex['prompt'] + "\nTL;DR:" + "\n\nAssistant:"
+        prompt = "Human: This is a forum post from Reddit, please generate a summary of the main points in the post." + ex['prompt'] + "Summary:\n\nAssistant:"
+        chosen_response = re.sub("TL;DR: ","", chosen_response)
+        rejected_response = re.sub("TL;DR: ", "", rejected_response)
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
@@ -243,7 +244,8 @@ def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dic
     print('done')
 
     def split_prompt_and_responses(ex):
-        prompt = ex['prompt']
+        ex['prompt']=re.sub("TL;DR:\s?","",ex['prompt'])
+        prompt = "Human: This is a forum post from Reddit, please generate a summary of the main points in the post." + ex['prompt'] + "Summary:\n\nAssistant:"
         chosen_response = ex['label']
         rejected_response = ex['label']
 
@@ -263,6 +265,36 @@ def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dic
         if i == 0:
             print("====================\n" + prompt + '\n================')
         i += 1
+
+    return data
+
+def get_summ_sample():
+    print(f'Loading alpaca dataset ')
+    # sft-norm -sft-our数据集不同
+    dataset = json.load(open('/private/home/liudianqing/projects/direct-preference-optimization-main/sample/pythia/pythia12b-sample-summ-result.json'))
+    print('done')
+
+    def split_prompt_and_responses(ex):
+        # sys_tem="Assuming you are an artificial intelligence assistant, please help users provide a helpful, detailed, and polite answer or response to the following question: \nComplete the following sentence: In a democracy, the power ultimately lies in the hands of\n\n\n\n Your answer or response:"
+        prompt = ex["instruction"]
+        # prompt = re.sub("to the following question:","to User's questions. \n User:", prompt)
+        # prompt = re.sub("Your answer or response:","Assistant:", prompt)
+        chosen_response = ex['response']
+        rejected_response = ex['sample_res']
+        return prompt, chosen_response, rejected_response
+
+    data = defaultdict(lambda: defaultdict(list))
+    i=0
+    for row in tqdm.tqdm(dataset, desc='Processing summ-sample'):
+        prompt, chosen, rejected = split_prompt_and_responses(row)
+        responses = [chosen, rejected]
+        n_responses = len(data[prompt]['responses'])
+        data[prompt]['pairs'].append((n_responses, n_responses + 1))
+        data[prompt]['responses'].extend(responses)
+        data[prompt]['sft_target'] = chosen
+        if i==0:
+            print(prompt)
+        i+=1
 
     return data
 
@@ -337,6 +369,8 @@ def get_dataset(name: str, split: str, silent: bool = False, cache_dir: str = No
         data = get_summ(split, silent=silent, cache_dir=cache_dir)
     elif name == "summ_sft":
         data = get_summ_sft(split, silent=silent, cache_dir=cache_dir)
+    elif name == "summ_sample":
+        data = get_summ_sample()
     elif name=="alpaca":
         data=get_alpaca()
     elif name=="alpaca_sample":
