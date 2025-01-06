@@ -49,6 +49,25 @@ class SparLogitsWarper(LogitsWarper):
         logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
         return logits_warped, base_out
 
+class SparEosLogitsWarper(LogitsWarper):
+    def __init__(self, base_model, top_k: int, top_p: float, temperature: float):
+        self.base_model = base_model
+        self.top_k = top_k
+        self.top_p = top_p
+        self.temperature = temperature
+
+    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
+        base_out = self.base_model(input_ids=input_ids, use_cache=True,
+                                   past_key_values=base_out.past_key_values if base_out else None)
+
+        base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
+        next_tokens = torch.argmax(base_logits, dim=-1)
+        if next_tokens[0] == self.base_model.generation_config.eos_token_id:
+            base_logits[0][self.base_model.generation_config.eos_token_id] = 999.999
+            logits_warped = torch.where(base_logits != 999.999, -float('Inf'), base_logits)
+        else:
+            logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
+        return logits_warped, base_out
 
 class SparJsLogitsWarper(LogitsWarper):
     def __init__(self, base_model, top_k: int, top_p: float, temperature: float, js_div_threshold: float):
