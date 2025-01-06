@@ -10,6 +10,7 @@ import re
 import random
 from bs4 import BeautifulSoup, NavigableString
 import numpy as np
+from scripts.sample.template import summ_prompt
 from typing import Dict, List, Optional, Iterator, Callable, Union, Tuple
 
 
@@ -217,7 +218,7 @@ def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         rejected_response = ex['rejected'].split("<|endoftext|>")[0]
         # prompt = prompt+"\nTL;DR:\n"
         # prompt = "Human: " + ex['prompt'] + "\nTL;DR:" + "\n\nAssistant:"
-        prompt = "Human: This is a forum post from Reddit, please generate a summary of the main points in the post." + ex['prompt'] + "Summary:\n\nAssistant:"
+        prompt = summ_prompt.format(post=ex['prompt'])
         chosen_response = re.sub("TL;DR: ","", chosen_response)
         rejected_response = re.sub("TL;DR: ", "", rejected_response)
         return prompt, chosen_response, rejected_response
@@ -245,7 +246,7 @@ def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dic
 
     def split_prompt_and_responses(ex):
         ex['prompt']=re.sub("TL;DR:\s?","",ex['prompt'])
-        prompt = "Human: This is a forum post from Reddit, please generate a summary of the main points in the post." + ex['prompt'] + "Summary:\n\nAssistant:"
+        prompt = summ_prompt.format(post=ex['prompt'])
         chosen_response = ex['label']
         rejected_response = ex['label']
 
