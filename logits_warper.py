@@ -63,8 +63,8 @@ class SparEosLogitsWarper(LogitsWarper):
         base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
         next_tokens = torch.argmax(base_logits, dim=-1)
         if next_tokens[0] == self.base_model.generation_config.eos_token_id:
-            base_logits[0][self.base_model.generation_config.eos_token_id] = 999.999
-            logits_warped = torch.where(base_logits != 999.999, -float('Inf'), base_logits)
+            logits_warped = base_logits.fill_(-float('Inf'))
+            logits_warped[0][self.base_model.generation_config.eos_token_id] = 1
         else:
             logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
         return logits_warped, base_out
