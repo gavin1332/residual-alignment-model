@@ -11,11 +11,12 @@ import random
 from bs4 import BeautifulSoup, NavigableString
 import numpy as np
 from typing import Dict, List, Optional, Iterator, Callable, Union, Tuple
+from sampling import default_build_prompt as build_prompt
 
 
 def extract_anthropic_prompt(prompt_and_response):
     """Extract the anthropic prompt from a prompt and response pair."""
-    search_term = '\n\nAssistant:'
+    search_term = '\n\nAssistant: '
     search_term_idx = prompt_and_response.rfind(search_term)
     assert search_term_idx != -1, f"Prompt and response does not contain '{search_term}'"
     return prompt_and_response[:search_term_idx + len(search_term)]
@@ -119,7 +120,7 @@ def get_shp(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str
     return data
 
 
-def get_hh(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+def get_hh(split: str, silent: bool = False, cache_dir: str = None, for_aligner=None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     """Load the Anthropic Helpful-Harmless dataset from Huggingface and convert it to the necessary format.
     
        The dataset is converted to a dictionary with the following structure:
@@ -148,6 +149,11 @@ def get_hh(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str,
         prompt = extract_anthropic_prompt(ex['chosen'])
         chosen_response = ex['chosen'][len(prompt):]
         rejected_response = ex['rejected'][len(prompt):]
+        if for_aligner:
+            prompt = f'{prompt}{rejected_response}\n\nCorrection: '
+            if for_aligner == 'warmup':
+                chosen_response = rejected_response
+            rejected_response = ''
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
@@ -160,10 +166,117 @@ def get_hh(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str,
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
         if once:
-            pass #print("====================\n" + prompt + '\n================')
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"+" * 30} Chosen\n{chosen}\n{"+" * 30}Reject\n{rejected}\n{"=" * 30}\n')
             once = False
 
     return data
+
+
+def get_harmless(split: str, silent: bool = False, cache_dir: str = None, for_aligner=None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+    print(f'Loading HH harmless dataset ({split} split) from Huggingface...')
+    dataset = datasets.load_dataset('Anthropic/hh-rlhf', data_dir="harmless-base", split=split, cache_dir=cache_dir)
+    print('done')
+
+    def split_prompt_and_responses(ex):
+        prompt = extract_anthropic_prompt(ex['chosen'])
+        chosen_response = ex['chosen'][len(prompt):]
+        rejected_response = ex['rejected'][len(prompt):]
+        if for_aligner:
+            prompt = f'{prompt}{rejected_response}\n\nCorrection: '
+            if for_aligner == 'warmup':
+                chosen_response = rejected_response
+            rejected_response = ''
+        return prompt, chosen_response, rejected_response
+
+    data = defaultdict(lambda: defaultdict(list))
+    once = True
+    for row in tqdm.tqdm(dataset, desc='Processing HH', disable=silent):
+        prompt, chosen, rejected = split_prompt_and_responses(row)
+        responses = [chosen, rejected]
+        n_responses = len(data[prompt]['responses'])
+        data[prompt]['pairs'].append((n_responses, n_responses + 1))
+        data[prompt]['responses'].extend(responses)
+        data[prompt]['sft_target'] = chosen
+        if once:
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"+" * 30} Chosen\n{chosen}\n{"+" * 30}Reject\n{rejected}\n{"=" * 30}\n')
+            once = False
+
+    return data
+
+
+def get_uc(model: str=None, for_aligner: str=None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+    """Load the UltraChat dataset of one round convert it to the necessary format. """
+    postfix = f'_sampling_{model}' if model else ''
+    data_file = f'_data/train/ultrachat_round_one{postfix}.json'
+    print(f'Loading UltraFeedback dataset {data_file} ...')
+    with open(data_file) as fin:
+        dataset = json.load(fin)
+    print('done')
+
+    def split_prompt_and_responses(ex):
+        chosen_response = ex['output']
+        rejected_response = ex['sampling'] if 'sampling' in ex else ''
+        if for_aligner:
+            prompt = build_prompt(ex, output_key='sampling', for_aligner=True)
+            if for_aligner == 'warmup':
+                chosen_response = rejected_response
+            rejected_response = ''
+        else:
+            prompt = build_prompt(ex)
+        return prompt, chosen_response, rejected_response
+
+    data = defaultdict(lambda: defaultdict(list))
+    once = True
+    for row in tqdm.tqdm(dataset, desc='Processing UltraChat'):
+        prompt, chosen, rejected = split_prompt_and_responses(row)
+        responses = [chosen, rejected]
+        n_responses = len(data[prompt]['responses'])
+        data[prompt]['pairs'].append((n_responses, n_responses + 1))
+        data[prompt]['responses'].extend(responses)
+        data[prompt]['sft_target'] = chosen
+        if once:
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 30} Chosen\n{chosen}\n{"-" * 30} Reject\n{rejected}\n{"=" * 30}\n')
+            once = False
+
+    return data
+
+
+def get_summ_sft_v2(model: str=None, for_aligner: str=None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+    """Load the CarperAI/openai_summarize_tldr dataset of one round convert it to the necessary format. """
+    postfix = f'_sampling_{model}' if model else ''
+    data_file = f'_data/train/openai_summarize_tldr{postfix}.jsonl'
+    print(f'Loading CarperAI/openai_summarize_tldr dataset {data_file} ...')
+    with open(data_file) as fin:
+        dataset = [json.loads(line.rstrip()) for line in fin]
+    print('done')
+
+    def split_prompt_and_responses(ex):
+        chosen_response = ex['output']
+        rejected_response = ex['sampling'] if 'sampling' in ex else ''
+        if for_aligner:
+            prompt = build_prompt(ex, output_key='sampling', for_aligner=True)
+            if for_aligner == 'warmup':
+                chosen_response = rejected_response
+            rejected_response = ''
+        else:
+            prompt = build_prompt(ex)
+        return prompt, chosen_response, rejected_response
+
+    data = defaultdict(lambda: defaultdict(list))
+    once = True
+    for row in tqdm.tqdm(dataset, desc='Processing openai_summarize_tldr'):
+        prompt, chosen, rejected = split_prompt_and_responses(row)
+        responses = [chosen, rejected]
+        n_responses = len(data[prompt]['responses'])
+        data[prompt]['pairs'].append((n_responses, n_responses + 1))
+        data[prompt]['responses'].extend(responses)
+        data[prompt]['sft_target'] = chosen
+        if once:
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"+" * 30} Chosen\n{chosen}\n{"+" * 30} Reject\n{rejected}\n{"=" * 30}\n')
+            once = False
+
+    return data
+
 
 def get_pkusafer(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
@@ -173,7 +286,7 @@ def get_pkusafer(split: str, silent: bool = False, cache_dir: str = None) -> Dic
     print('done')
 
     def split_prompt_and_responses(ex):
-        prompt = 'Human: ' + ex["prompt"] + '\n\nAssistant:'
+        prompt = 'Human: ' + ex["prompt"] + '\n\nAssistant: '
         chosen_response = ex['response_0'] if ex["safer_response_id"] == 0 else ex["response_1"]
         rejected_response = ex['response_1'] if ex["safer_response_id"] == 0 else ex["response_0"]
         return prompt, chosen_response, rejected_response
@@ -188,43 +301,30 @@ def get_pkusafer(split: str, silent: bool = False, cache_dir: str = None) -> Dic
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
         if once:
-            pass #print("====================\n" + prompt + '\n================')
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
         once = False
 
     return data
 
-def get_mix(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    data = get_hh(split, silent=silent, cache_dir=cache_dir)
-    data.update(get_alpaca())
-    data.update(get_pkusafer(split, silent=silent, cache_dir=cache_dir))
-    return data
-
-def get_safe(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    data = get_hh(split, silent=silent, cache_dir=cache_dir)
-    data.update(get_pkusafer(split, silent=silent, cache_dir=cache_dir))
-    return data
 
 def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    print(f'Loading HH dataset ({split} split) from Huggingface...')
+    print(f'Loading TL;DR summarization comparisons dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('/private/home/liudianqing/corpus/rlhf/openai_summarize_comparisons', split=split, cache_dir=cache_dir)
     print('done')
 
     def split_prompt_and_responses(ex):
+        prompt = ex['prompt'] + '\nTL;DR:'
         chosen_response = ex['chosen'].split("<|endoftext|>")[0]
         rejected_response = ex['rejected'].split("<|endoftext|>")[0]
-        # prompt = prompt+"\nTL;DR:\n"
-        # prompt = "Human: " + ex['prompt'] + "\nTL;DR:" + "\n\nAssistant:"
-        prompt = "Human: This is a forum post from Reddit, please generate a summary of the main points in the post." + ex['prompt'] + "Summary:\n\nAssistant:"
-        chosen_response = re.sub("TL;DR: ","", chosen_response)
-        rejected_response = re.sub("TL;DR: ", "", rejected_response)
+        tldr_pattern = r'^TL;DR:\s*'
+        chosen_response = re.sub(tldr_pattern, '', chosen_response)
+        rejected_response = re.sub(tldr_pattern, '', rejected_response)
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
     once = True
-    for row in tqdm.tqdm(dataset, desc='Processing HH', disable=silent):
+    for row in tqdm.tqdm(dataset, desc='Processing TL;DR', disable=silent):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
         n_responses = len(data[prompt]['responses'])
@@ -232,87 +332,51 @@ def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
         if once:
-            pass #print("====================\n" + prompt + '\n================')
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
         once = False
 
     return data
 
 def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    print(f'Loading HH dataset ({split} split) from Huggingface...')
-    dataset = datasets.load_dataset('/private/home/liudianqing/corpus/rlhf/openai_summarize_tldr_sft', split=split, cache_dir=cache_dir)
+    print(f'Loading TL;DR summarization SFT dataset ({split} split) from Huggingface...')
+    dataset = datasets.load_dataset('CarperAI/openai_summarize_tldr', split=split, cache_dir=cache_dir)
     print('done')
 
     def split_prompt_and_responses(ex):
-        ex['prompt']=re.sub("TL;DR:\s?","",ex['prompt'])
-        prompt = "Human: This is a forum post from Reddit, please generate a summary of the main points in the post." + ex['prompt'] + "Summary:\n\nAssistant:"
+        prompt = ex['prompt']
         chosen_response = ex['label']
-        rejected_response = ex['label']
-
-        # chosen_response = re.sub("TL;DR:  ","", chosen_response)
-        # rejected_response = re.sub("TL;DR:  ", "", rejected_response)
+        rejected_response = ''
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
-    i = 0
-    for row in tqdm.tqdm(dataset, desc='Processing HH', disable=silent):
+    once = True
+    for row in tqdm.tqdm(dataset, desc='Processing TL;DR SFT', disable=silent):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
         n_responses = len(data[prompt]['responses'])
         data[prompt]['pairs'].append((n_responses, n_responses + 1))
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
-        if i == 0:
-            print("====================\n" + prompt + '\n================')
-        i += 1
-
-    return data
-
-def get_summ_sample():
-    print(f'Loading alpaca dataset ')
-    # sft-norm -sft-our数据集不同
-    dataset = json.load(open('/private/home/liudianqing/projects/direct-preference-optimization-main/sample/pythia/pythia12b-sample-summ-result.json'))
-    print('done')
-
-    def split_prompt_and_responses(ex):
-        # sys_tem="Assuming you are an artificial intelligence assistant, please help users provide a helpful, detailed, and polite answer or response to the following question: \nComplete the following sentence: In a democracy, the power ultimately lies in the hands of\n\n\n\n Your answer or response:"
-        prompt = ex["instruction"]
-        # prompt = re.sub("to the following question:","to User's questions. \n User:", prompt)
-        # prompt = re.sub("Your answer or response:","Assistant:", prompt)
-        chosen_response = ex['response']
-        rejected_response = ex['sample_res']
-        return prompt, chosen_response, rejected_response
-
-    data = defaultdict(lambda: defaultdict(list))
-    i=0
-    for row in tqdm.tqdm(dataset, desc='Processing summ-sample'):
-        prompt, chosen, rejected = split_prompt_and_responses(row)
-        responses = [chosen, rejected]
-        n_responses = len(data[prompt]['responses'])
-        data[prompt]['pairs'].append((n_responses, n_responses + 1))
-        data[prompt]['responses'].extend(responses)
-        data[prompt]['sft_target'] = chosen
-        if i==0:
-            print(prompt)
-        i+=1
+        if once:
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
+        once = False
 
     return data
 
 def get_alpaca():
     print(f'Loading alpaca dataset ')
-    dataset = json.load(open('/private/home/liudianqing/soft/LLaMA-Factory/data/alpaca_data_cleaned.json'))
+    with open('./data/train/alpaca_data_cleaned.json') as fin:
+        dataset = json.load(fin)
     print('done')
-    # sys_tem = "Assuming you are an artificial intelligence assistant, please help users provide a helpful, detailed, and polite answer or response to User's questions. \n User:\n{ins}\n\n Assistant:"
 
     def split_prompt_and_responses(ex):
-        # prompt = '### Instruction: \n' + ex["instruction"]+ex['input'] + '\n\n### Response:\n'
-        prompt = 'Human: ' + ex["instruction"]+ex['input']  + '\n\nAssistant:'
-        # prompt = ex["instruction"] + ex['input']
-        # prompt=sys_tem.format_map({"ins":prompt})
+        prompt = build_prompt(ex)
         chosen_response = ex['output']
-        rejected_response = ""
+        rejected_response = '' 
         return prompt, chosen_response, rejected_response
-    i=0
+
+    once = True
     data = defaultdict(lambda: defaultdict(list))
     for row in tqdm.tqdm(dataset, desc='Processing aplaca'):
         prompt, chosen, rejected = split_prompt_and_responses(row)
@@ -321,29 +385,31 @@ def get_alpaca():
         data[prompt]['pairs'].append((n_responses, n_responses + 1))
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
-        # if i==0:
-        #     print(prompt)
-        i+=1
+        if once:
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
+        once = False
 
     return data
 
-def get_alpaca_sample():
-    print(f'Loading alpaca dataset ')
-    # sft-norm -sft-our数据集不同
-    dataset = json.load(open('/private/home/liudianqing/projects/direct-preference-optimization-main/sample/pythia/pythia12b-sample-alpaca-result.jsonllllll'))
+def get_alpaca_sampling(for_aligner: bool, model: str):
+    print(f'Loading alpaca with {model} sampling dataset ')
+    with open(f'data/train/alpaca_sampling_{model}.json') as fin:
+        dataset = json.load(fin)
     print('done')
 
     def split_prompt_and_responses(ex):
-        # sys_tem="Assuming you are an artificial intelligence assistant, please help users provide a helpful, detailed, and polite answer or response to the following question: \nComplete the following sentence: In a democracy, the power ultimately lies in the hands of\n\n\n\n Your answer or response:"
-        prompt = ex["instruction"]
-        # prompt = re.sub("to the following question:","to User's questions. \n User:", prompt)
-        # prompt = re.sub("Your answer or response:","Assistant:", prompt)
-        chosen_response = ex['response']
-        rejected_response = ex['sample_res']
+        if for_aligner:
+            prompt = ex["instruction"] + ex['sampling'] + '\n\n### Correction:\n'
+            chosen_response = ex['output']
+            rejected_response = ''
+        else:
+            prompt = ex["instruction"]
+            chosen_response = ex['output']
+            rejected_response = ex['sampling']
         return prompt, chosen_response, rejected_response
 
     data = defaultdict(lambda: defaultdict(list))
-    i=0
+    once = True
     for row in tqdm.tqdm(dataset, desc='Processing aplaca'):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
@@ -351,9 +417,9 @@ def get_alpaca_sample():
         data[prompt]['pairs'].append((n_responses, n_responses + 1))
         data[prompt]['responses'].extend(responses)
         data[prompt]['sft_target'] = chosen
-        if i==0:
-            print(prompt)
-        i+=1
+        if once:
+            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
+        once = False
 
     return data
 
@@ -361,26 +427,50 @@ def get_dataset(name: str, split: str, silent: bool = False, cache_dir: str = No
     """Load the given dataset by name. Supported by default are 'shp', 'hh', and 'se'."""
     if name == 'shp':
         data = get_shp(split, silent=silent, cache_dir=cache_dir)
+    elif name == 'harmless':
+        data = get_harmless(split, silent=silent, cache_dir=cache_dir)
+    elif name == 'harmless_aligner_common':
+        data = get_harmless(split, silent=silent, cache_dir=cache_dir, for_aligner='common')
+    elif name == 'harmless_aligner_warmup':
+        data = get_harmless(split, silent=silent, cache_dir=cache_dir, for_aligner='warmup')
     elif name == 'hh':
         data = get_hh(split, silent=silent, cache_dir=cache_dir)
+    elif name == 'hh_aligner_common':
+        data = get_hh(split, silent=silent, cache_dir=cache_dir, for_aligner='common')
+    elif name == 'hh_aligner_warmup':
+        data = get_hh(split, silent=silent, cache_dir=cache_dir, for_aligner='warmup')
     elif name == 'se':
         data = get_se(split, silent=silent, cache_dir=cache_dir)
-    elif name == "summ":
+    elif name == 'alpaca':
+        data = get_alpaca()
+    elif name == 'alpaca_qwen14b':
+        data = get_alpaca_sampling(for_aligner=False, model='qwen14b')
+    elif name == 'alpaca_qwen14b_aligner':
+        data = get_alpaca_sampling(for_aligner=True, model='qwen14b')
+    elif name == 'uc':
+        data = get_uc()
+    # uc_{model} or uc_{model}_aligner_{task}
+    elif name.startswith('uc_'):
+        obj = name.split('_')
+        model = obj[1]
+        if 'aligner' in name:
+            data = get_uc(model=model, for_aligner=obj[3])
+        else:
+            data = get_uc(model=model)
+    elif name == 'summ-sft':
+        data = get_summ_sft_v2()
+    # summ-sft_{model} or summ-sft_{model}_aligner_{task}
+    elif name.startswith('summ-sft_'):
+        obj = name.split('_')
+        model = obj[1]
+        if 'aligner' in name:
+            data = get_summ_sft_v2(model=model, for_aligner=obj[3])
+        else:
+            data = get_summ_sft_v2(model=model)
+    elif name == 'summ':
         data = get_summ(split, silent=silent, cache_dir=cache_dir)
-    elif name == "summ_sft":
-        data = get_summ_sft(split, silent=silent, cache_dir=cache_dir)
-    elif name == "summ_sample":
-        data = get_summ_sample()
-    elif name=="alpaca":
-        data=get_alpaca()
-    elif name=="alpaca_sample":
-        data=get_alpaca_sample()
-    elif name=="pkusafer":
-        data=get_pkusafer(split, silent=silent, cache_dir=cache_dir)
-    elif name=="mix":
-        data=get_mix(split, silent=silent, cache_dir=cache_dir)
-    elif name=="safe":
-        data=get_safe(split, silent=silent, cache_dir=cache_dir)
+    elif name == 'pkusafer':
+        data = get_pkusafer(split, silent=silent, cache_dir=cache_dir)
     else:
         raise ValueError(f"Unknown dataset '{name}'")
 
@@ -397,14 +487,12 @@ def get_collate_fn(tokenizer) -> Callable[[List[Dict]], Dict[str, Union[List, to
          ints [tokens] or strings [the original texts]) and returns a batch of examples,
          PyTorch tensors padded to the maximum length. Strings are passed through."""
     def collate_fn(batch):
-        # first, pad everything to the same length
+        # first, pad everything to the left to the same length
         padded_batch = {}
         for k in batch[0].keys():
             if k.endswith('_input_ids') or k.endswith('_attention_mask') or k.endswith('_labels'):
-                if 'prompt' in k:  # adapted from https://stackoverflow.com/questions/73256206
-                    to_pad = [torch.LongTensor(ex[k][::-1]) for ex in batch]
-                else:
-                    to_pad = [torch.LongTensor(ex[k]) for ex in batch]
+                to_pad = [torch.LongTensor(ex[k][::-1]) for ex in batch]
+
                 if k.endswith('_input_ids'):
                     padding_value = tokenizer.pad_token_id
                 elif k.endswith('_labels'):
@@ -415,8 +503,7 @@ def get_collate_fn(tokenizer) -> Callable[[List[Dict]], Dict[str, Union[List, to
                     raise ValueError(f"Unexpected key in batch '{k}'")
 
                 padded_batch[k] = pad_sequence(to_pad, batch_first=True, padding_value=padding_value)
-                if 'prompt' in k:  # for the prompt, flip back so padding is on left side
-                    padded_batch[k] = padded_batch[k].flip(dims=[1])
+                padded_batch[k] = padded_batch[k].flip(dims=[1])
             else:
                 padded_batch[k] = [ex[k] for ex in batch]
 
@@ -441,7 +528,7 @@ def tokenize_batch_element(prompt: str, chosen: str, rejected: str, truncation_m
 
     assert tokenizer.eos_token_id not in prompt_tokens['input_ids'], f"Prompt contains EOS token: {prompt}"
     assert tokenizer.eos_token_id not in chosen_tokens['input_ids'], f"Chosen response contains EOS token: {chosen}"
-    # assert tokenizer.eos_token_id not in rejected_tokens['input_ids'], f"Rejected response contains EOS token: {rejected}"
+    assert tokenizer.eos_token_id not in rejected_tokens['input_ids'], f"Rejected response contains EOS token: {rejected}"
 
     chosen_tokens['input_ids'].append(tokenizer.eos_token_id)
     chosen_tokens['attention_mask'].append(1)
@@ -500,7 +587,7 @@ def get_batch_iterator(names: List[str],
                        sft_mode: bool = False,
                        n_epochs: Optional[int] = None,
                        n_examples: Optional[int] = None,
-                       seed:int = 0,
+                       seed: int = 0,
                        silent: bool = False,
                        cache_dir: Optional[str] = None) -> Iterator[Dict]:
     """Get an iterator over batches of data. Stops after n_epochs or n_examples, whichever comes first.
@@ -529,7 +616,8 @@ def get_batch_iterator(names: List[str],
         permutation_seeds = iter(np.random.randint(0, 2**32, size=1000000))
         flat_data = []
         for name in names:
-            truncation_mode = 'keep_end' if name == 'hh' else 'keep_start'
+            truncation_mode = 'keep_end'
+            print(f'truncation_mode is {truncation_mode} in {name} dataset')
             for prompt, data in get_dataset(name, split, silent=silent, cache_dir=cache_dir).items():
                 flat_data.append((prompt, data['responses'], data['pairs'], data['sft_target'], truncation_mode))
 
@@ -544,7 +632,7 @@ def get_batch_iterator(names: List[str],
                 print(f'Finished generating {n_epochs} epochs on {split} split')
             break
         if shuffle:
-            with TemporarilySeededRandom(next(permutation_seeds)):
+            with TemporarilySeededRandom(next(permutation_seeds).item()):
                 random.shuffle(flat_data)
 
         batch = []

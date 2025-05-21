@@ -28,6 +28,7 @@ from utils import (
     get_block_class_from_model,
     rank0_print,
     get_local_dir,
+    disable_dropout,
 )
 import numpy as np
 import wandb
@@ -130,14 +131,14 @@ def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict
         if k.startswith('chosen') and isinstance(batch[k], torch.Tensor):
             pad_value = -100 if 'labels' in k else 0
             concatenated_key = k.replace('chosen', 'concatenated')
-            concatenated_batch[concatenated_key] = pad_to_length(batch[k], max_length, pad_value=pad_value)
+            concatenated_batch[concatenated_key] = pad_to_length(batch[k], max_length, pad_value=pad_value, to_left=True)
     for k in batch:
         if k.startswith('rejected') and isinstance(batch[k], torch.Tensor):
             pad_value = -100 if 'labels' in k else 0
             concatenated_key = k.replace('rejected', 'concatenated')
             concatenated_batch[concatenated_key] = torch.cat((
                 concatenated_batch[concatenated_key],
-                pad_to_length(batch[k], max_length, pad_value=pad_value),
+                pad_to_length(batch[k], max_length, pad_value=pad_value, to_left=True),
             ), dim=0)
     return concatenated_batch
 
@@ -160,6 +161,11 @@ class BasicTrainer(object):
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir=get_local_dir(config.local_dirs))
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+
+        self.model_config = transformers.AutoConfig.from_pretrained(config.model.name_or_path, cache_dir=get_local_dir(config.local_dirs))
+        if self.model_config.eos_token_id != self.tokenizer.eos_token_id:
+            print(f'Mismatch eos_token_ids. Change eos_token_id from {self.model_config.eos_token_id} to {self.tokenizer.eos_token_id}')
+            self.model_config.eos_token_id = self.tokenizer.eos_token_id
 
         data_iterator_kwargs = dict(
             names=config.datasets,
@@ -226,7 +232,7 @@ class BasicTrainer(object):
         metrics = {}
         train_test = 'train' if train else 'eval'
 
-        if loss_config.name in {'dpo', 'ipo', 'dpo_our'}:
+        if loss_config.name in {'dpo', 'ipo', 'ours_dpo'}:
             policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
             with torch.no_grad():
                 if self.reference_model:
@@ -234,7 +240,7 @@ class BasicTrainer(object):
                 else:
                     reference_chosen_logps, reference_rejected_logps = 0, 0
 
-            if loss_config.name == 'dpo' or loss_config.name == 'dpo_our':
+            if loss_config.name == 'dpo' or loss_config.name == 'ours_dpo':
                 loss_kwargs = {'beta': loss_config.beta, 'reference_free': loss_config.reference_free, 'label_smoothing': loss_config.label_smoothing, 'ipo': False}
             elif loss_config.name == 'ipo':
                 loss_kwargs = {'beta': loss_config.beta, 'ipo': True}
@@ -264,7 +270,7 @@ class BasicTrainer(object):
 
             losses = -policy_chosen_logps
 
-        elif loss_config.name == 'sft_our':
+        elif loss_config.name == 'ours_sft':
             policy_chosen_logits = self.policy(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
             policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['chosen_labels'], average_log_prob=False)
             policy_reject_logits = self.policy(batch['rejected_input_ids'], attention_mask=batch['rejected_attention_mask']).logits.to(torch.float32)
@@ -422,18 +428,36 @@ class BasicTrainer(object):
 
         os.makedirs(dir_name, exist_ok=True)
         output_path = os.path.join(dir_name, filename)
-        rank0_print(f'writing checkpoint to {output_path}...')
-        torch.save({
-            'step_idx': step,
-            'state': state,
-            'metrics': metrics if metrics is not None else {},
-        }, output_path)
+        rank0_print(f'writing checkpoint to {dir_name}...')
+        if filename == 'status.json':
+            with open(output_path, 'w') as fout:
+                print(json.dumps(dict(step_idx=step, metrics=metrics if metrics is not None else {}), indent=4), file=fout)
+
+            policy_dtype = getattr(torch, self.config.model.policy_dtype)
+            policy = transformers.AutoModelForCausalLM.from_pretrained(
+                self.config.model.name_or_path, cache_dir=get_local_dir(self.config.local_dirs), low_cpu_mem_usage=True,
+                torch_dtype=policy_dtype)
+            policy.load_state_dict(state)
+            disable_dropout(policy)
+            policy = policy.bfloat16()
+            policy.save_pretrained(dir_name, safe_serialization=False)
+
+            self.tokenizer.save_pretrained(dir_name)
+            self.model_config.save_pretrained(dir_name)
+        else:
+            torch.save({
+                'step_idx': step,
+                'state': state,
+                'metrics': metrics if metrics is not None else {},
+            }, output_path)
+
     
     def save(self, output_dir: Optional[str] = None, metrics: Optional[Dict] = None):
         """Save policy, optimizer, and scheduler state to disk."""
 
         policy_state_dict = self.policy.state_dict()
-        self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
+        #self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
+        self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'status.json', output_dir)
         del policy_state_dict
 
         # optimizer_state_dict = self.optimizer.state_dict()
@@ -518,7 +542,8 @@ class FSDPTrainer(BasicTrainer):
             policy_state_dict = self.policy.state_dict()
 
         if self.rank == 0:
-            self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
+            #self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
+            self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'status.json', output_dir)
         del policy_state_dict
         dist.barrier()
 
@@ -557,6 +582,7 @@ class TensorParallelTrainer(BasicTrainer):
         with tp.save_tensor_parallel(self.policy):
             policy_state_dict = self.policy.state_dict()
     
-        self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
+        #self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
+        self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'status.json', output_dir)
         del policy_state_dict
         
