@@ -34,9 +34,9 @@ Run our SFT for Qwen2.5-3B on UltraChat data:
 
     bash bin/train_qwen_uc.sh
 
-> Note: Due to the need to sample the original training set with the *Proposal Module* to synthesize training data for *Residual Aligner*, the original training set must be pre-downloaded to the `_data/train` directory. Please refer to the `data_file` variable in `get_uc` and `get_summ_sft` functions in file `preference_datasets.py` for the specific file path.
+> Note: Due to the need to sample the original training set with the *Proposal Module* to synthesize training data for *Residual Aligner*, the original training set must be pre-downloaded to the `_data/train` directory. Please refer to the `data_file` variable in `get_<dataset>` functions in file `preference_datasets.py` for the specific file path.
 
-> Note: All models used in our experiments is pre-downloaded in to `/private/model` directory, please refer to `config/model/\*.yaml` for detailed information.
+> Note: All models used in our experiments is pre-downloaded in to `/private/model` directory, please refer to `config/model/*.yaml` for detailed information.
 
 ## Evaluation
 
