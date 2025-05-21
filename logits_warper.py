@@ -46,7 +46,11 @@ class SparLogitsWarper(LogitsWarper):
                                    past_key_values=base_out.past_key_values if base_out else None)
 
         base_logits = top_k_top_p_filtering(base_out.logits[:, -1, :], top_k=self.top_k, top_p=self.top_p, temperature=self.temperature)
-        logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
+        if self.base_model.generation_config.eos_token_id == torch.argmax(base_logits, dim=-1)[0]:
+            logits_warped = base_logits.fill_(-float('Inf'))
+            logits_warped[0][self.base_model.generation_config.eos_token_id] = 1
+        else:
+            logits_warped = torch.where(base_logits == -float('Inf'), -float('Inf'), logits)
         return logits_warped, base_out
 
 class SparEosLogitsWarper(LogitsWarper):
@@ -141,50 +145,29 @@ class SparKlLogitsWarper(LogitsWarper):
 
 
 class MdsLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, base_temperature: float, expert_temperature: float):
+    def __init__(self, base_model, base_temperature: float, expert_temperature: float, eos_priority: bool=False):
         self.base_model = base_model
         self.base_temperature = base_temperature
         self.expert_temperature = expert_temperature
-
-    def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
-        base_out = self.base_model(input_ids=input_ids, use_cache=True,
-                past_key_values=base_out.past_key_values if base_out else None)
-
-        base_probs = torch.nn.functional.softmax(base_out.logits[:, -1, :] / self.base_temperature, dim=-1)
-        probs = torch.nn.functional.softmax(logits / self.expert_temperature, dim=-1)
-        probs_mul = base_probs * probs
-        probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
-
-        epsilon = 1e-10
-        logits_warped = torch.log(probs + epsilon)
-        return logits_warped, base_out
-
-
-class MdsKlLogitsWarper(LogitsWarper):
-    def __init__(self, base_model, base_temperature: float, expert_temperature: float, kl_div_threshold: float):
-        self.base_model = base_model
-        self.base_temperature = base_temperature
-        self.expert_temperature = expert_temperature
-        self.kl_div_threshold = kl_div_threshold
+        self.eos_priority = eos_priority
 
     def __call__(self, input_ids: torch.LongTensor, logits: torch.FloatTensor, base_out=None):
         base_out = self.base_model(input_ids=input_ids, use_cache=True,
                 past_key_values=base_out.past_key_values if base_out else None)
 
         base_logits = base_out.logits[:, -1, :]
-        base_probs = F.softmax(base_logits, dim=-1)
-        logprobs = F.log_softmax(logits / self.expert_temperature, dim=-1)
-        # higher base_probs -> higher expert_probs, but no need for vice versa
-        kl_div = F.kl_div(logprobs, base_probs, reduction='sum')
 
-        if kl_div.item() <= self.kl_div_threshold:
-            probs_mul = base_probs * logprobs.exp()
+        if self.eos_priority and self.base_model.generation_config.eos_token_id == torch.argmax(base_logits, dim=-1)[0]:
+            logits_warped = base_logits.fill_(-float('Inf'))
+            logits_warped[0][self.base_model.generation_config.eos_token_id] = 1
+        else:
+            base_probs = F.softmax(base_logits / self.base_temperature, dim=-1)
+            probs = F.softmax(logits / self.expert_temperature, dim=-1)
+            probs_mul = base_probs * probs
             probs = probs_mul / probs_mul.sum(dim=-1, keepdim=True)
 
             epsilon = 1e-10
             logits_warped = torch.log(probs + epsilon)
-        else:
-            logits_warped = base_logits
 
         return logits_warped, base_out
 

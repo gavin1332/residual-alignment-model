@@ -1,3 +1,4 @@
 .*
 _*
 *annotations_seed0_configs.json
+evaluate/alpaca_eval/client_configs/openai_configs.yaml

@@ -1,7 +1,7 @@
-name_or_path: /private/model/Qwen/Qwen2.5-7B
+name_or_path: /private/model/meta-llama/Llama-3.1-8B
 tokenizer_name_or_path: null
 archive: null
-block_name: Qwen2DecoderLayer
+block_name: LlamaDecoderLayer
 
 policy_dtype: bfloat16
 fsdp_policy_mp: null
