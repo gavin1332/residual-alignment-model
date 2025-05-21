@@ -5,7 +5,13 @@
 This repo includes a reference implementation of the **Residual Alignment Model (RAM)** for training and inference, as described in the paper **Leveraging Importance Sampling to Detach Alignment
 Modules from Large Language Models**.
 
-## Training Example
+## Prerequisites
+
+    python3 -m venv env
+    source env/bin/activate
+    pip install -r requirements.txt
+
+## Training
 
 Run our SFT for Llama-3.2-1B on Anthropic-HH data:
 
