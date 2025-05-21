@@ -12,13 +12,11 @@ import os
 from typing import Dict, Union, Type, List
 import logging
 
-# 配置日志记录
 logging.basicConfig(
-    level=logging.DEBUG,  # 设置日志级别
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # 设置日志格式
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        #logging.FileHandler("haha.log"),  # 输出到文件
-        logging.StreamHandler()  # 输出到控制台
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)

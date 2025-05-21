@@ -242,7 +242,7 @@ def get_uc(model: str=None, for_aligner: str=None) -> Dict[str, Dict[str, Union[
     return data
 
 
-def get_summ_sft_v2(model: str=None, for_aligner: str=None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+def get_summ_sft(model: str=None, for_aligner: str=None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     """Load the CarperAI/openai_summarize_tldr dataset of one round convert it to the necessary format. """
     postfix = f'_sampling_{model}' if model else ''
     data_file = f'_data/train/openai_summarize_tldr{postfix}.jsonl'
@@ -279,35 +279,6 @@ def get_summ_sft_v2(model: str=None, for_aligner: str=None) -> Dict[str, Dict[st
     return data
 
 
-def get_pkusafer(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    print(f'Loading PKU-SafeRLHF dataset ({split} split) from Huggingface...')
-    # dataset = datasets.load_dataset('PKU-Alignment/PKU-SafeRLHF',name='alpaca3-8b', split=split, cache_dir=cache_dir)
-    dataset = datasets.load_dataset('PKU-Alignment/PKU-SafeRLHF', split=split, cache_dir=cache_dir)
-    print('done')
-
-    def split_prompt_and_responses(ex):
-        prompt = 'Human: ' + ex["prompt"] + '\n\nAssistant: '
-        chosen_response = ex['response_0'] if ex["safer_response_id"] == 0 else ex["response_1"]
-        rejected_response = ex['response_1'] if ex["safer_response_id"] == 0 else ex["response_0"]
-        return prompt, chosen_response, rejected_response
-
-    data = defaultdict(lambda: defaultdict(list))
-    once = True
-    for row in tqdm.tqdm(dataset, desc='Processing PKU-SafeRLHF', disable=silent):
-        prompt, chosen, rejected = split_prompt_and_responses(row)
-        responses = [chosen, rejected]
-        n_responses = len(data[prompt]['responses'])
-        data[prompt]['pairs'].append((n_responses, n_responses + 1))
-        data[prompt]['responses'].extend(responses)
-        data[prompt]['sft_target'] = chosen
-        if once:
-            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
-        once = False
-
-    return data
-
-
 def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
         str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     print(f'Loading TL;DR summarization comparisons dataset ({split} split) from Huggingface...')
@@ -326,33 +297,6 @@ def get_summ(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
     data = defaultdict(lambda: defaultdict(list))
     once = True
     for row in tqdm.tqdm(dataset, desc='Processing TL;DR', disable=silent):
-        prompt, chosen, rejected = split_prompt_and_responses(row)
-        responses = [chosen, rejected]
-        n_responses = len(data[prompt]['responses'])
-        data[prompt]['pairs'].append((n_responses, n_responses + 1))
-        data[prompt]['responses'].extend(responses)
-        data[prompt]['sft_target'] = chosen
-        if once:
-            print(f'{"=" * 20} Prompt\n{prompt}\n{"-" * 20} Chosen\n{chosen}\n{"-" * 20} Reject\n{rejected}\n{"=" * 20}\n')
-        once = False
-
-    return data
-
-def get_summ_sft(split: str, silent: bool = False, cache_dir: str = None) -> Dict[
-        str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
-    print(f'Loading TL;DR summarization SFT dataset ({split} split) from Huggingface...')
-    dataset = datasets.load_dataset('CarperAI/openai_summarize_tldr', split=split, cache_dir=cache_dir)
-    print('done')
-
-    def split_prompt_and_responses(ex):
-        prompt = ex['prompt']
-        chosen_response = ex['label']
-        rejected_response = ''
-        return prompt, chosen_response, rejected_response
-
-    data = defaultdict(lambda: defaultdict(list))
-    once = True
-    for row in tqdm.tqdm(dataset, desc='Processing TL;DR SFT', disable=silent):
         prompt, chosen, rejected = split_prompt_and_responses(row)
         responses = [chosen, rejected]
         n_responses = len(data[prompt]['responses'])
@@ -428,12 +372,6 @@ def get_dataset(name: str, split: str, silent: bool = False, cache_dir: str = No
     """Load the given dataset by name. Supported by default are 'shp', 'hh', and 'se'."""
     if name == 'shp':
         data = get_shp(split, silent=silent, cache_dir=cache_dir)
-    elif name == 'harmless':
-        data = get_harmless(split, silent=silent, cache_dir=cache_dir)
-    elif name == 'harmless_aligner_common':
-        data = get_harmless(split, silent=silent, cache_dir=cache_dir, for_aligner='common')
-    elif name == 'harmless_aligner_warmup':
-        data = get_harmless(split, silent=silent, cache_dir=cache_dir, for_aligner='warmup')
     elif name == 'hh':
         data = get_hh(split, silent=silent, cache_dir=cache_dir)
     elif name == 'hh_aligner_common':
@@ -459,19 +397,17 @@ def get_dataset(name: str, split: str, silent: bool = False, cache_dir: str = No
         else:
             data = get_uc(model=model)
     elif name == 'summ-sft':
-        data = get_summ_sft_v2()
+        data = get_summ_sft()
     # summ-sft_{model} or summ-sft_{model}_aligner_{task}
     elif name.startswith('summ-sft_'):
         obj = name.split('_')
         model = obj[1]
         if 'aligner' in name:
-            data = get_summ_sft_v2(model=model, for_aligner=obj[3])
+            data = get_summ_sft(model=model, for_aligner=obj[3])
         else:
-            data = get_summ_sft_v2(model=model)
+            data = get_summ_sft(model=model)
     elif name == 'summ':
         data = get_summ(split, silent=silent, cache_dir=cache_dir)
-    elif name == 'pkusafer':
-        data = get_pkusafer(split, silent=silent, cache_dir=cache_dir)
     else:
         raise ValueError(f"Unknown dataset '{name}'")
 

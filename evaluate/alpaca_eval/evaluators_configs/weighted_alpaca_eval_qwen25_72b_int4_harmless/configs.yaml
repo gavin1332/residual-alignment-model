@@ -1,5 +1,5 @@
 weighted_alpaca_eval_qwen25_72b_int4_harmless:
-  prompt_template: "weighted_alpaca_eval_gpt4_turbo_harmless/alpaca_eval_harmlessness_clf.txt"
+  prompt_template: "weighted_alpaca_eval_qwen25_72b_int4_harmless/alpaca_eval_harmlessness_clf.txt"
   fn_completions: "openai_completions"
   completions_kwargs:
     model_name: "/private/model/Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4" #"Qwen2.5-72B-Instruct-GPTQ-Int4"

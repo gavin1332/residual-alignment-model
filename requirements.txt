@@ -1,3 +1,14 @@
+ipykernel
+numpy
+tokenizers
+torch
+tqdm
+transformers
+datasets
+beautifulsoup4
+wandb
+hydra-core
+tensor-parallel
 hydra-core
 tensor_parallel
 alpaca_eval
