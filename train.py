@@ -80,11 +80,10 @@ def main(config: DictConfig):
     print('building policy')
     model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
     policy_dtype = getattr(torch, config.model.policy_dtype)
-    # set attn_implementation to fix the RuntimeError: "triu_tril_cuda_template" not implemented for 'BFloat16'
-    # Reference: https://github.com/meta-llama/llama3/issues/110
     policy = transformers.AutoModelForCausalLM.from_pretrained(
         config.model.name_or_path, cache_dir=get_local_dir(config.local_dirs), low_cpu_mem_usage=True,
         torch_dtype=policy_dtype, attn_implementation='flash_attention_2', **model_kwargs)
+        #torch_dtype=policy_dtype, **model_kwargs)
     disable_dropout(policy)
 
     if config.loss.name in {'dpo', 'ipo'}:
@@ -93,25 +92,31 @@ def main(config: DictConfig):
         reference_model = transformers.AutoModelForCausalLM.from_pretrained(
             config.model.name_or_path, cache_dir=get_local_dir(config.local_dirs), low_cpu_mem_usage=True,
             torch_dtype=reference_model_dtype, attn_implementation='flash_attention_2', **model_kwargs)
+            #torch_dtype=reference_model_dtype, **model_kwargs)
         disable_dropout(reference_model)
     else:
         reference_model = None
 
     if config.model.archive is not None:
-        # state_dict = torch.load(config.model.archive, map_location='cpu')
-        # step, metrics = state_dict['step_idx'], state_dict['metrics']
-        # print(f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
-        # policy.load_state_dict(state_dict['state'])
-        # if config.loss.name in {'dpo', 'ipo'}:
-        #     reference_model.load_state_dict(state_dict['state'])
-        # print('loaded pre-trained weights')
+        #state_dict = torch.load(config.model.archive, map_location='cpu')
+        #step, metrics = state_dict['step_idx'], state_dict['metrics']
+        #print(f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
+        #policy.load_state_dict(state_dict['state'])
+        #if config.loss.name in {'dpo', 'ipo'}:
+        #    reference_model.load_state_dict(state_dict['state'])
+        #print('loaded pre-trained weights')
 
+        print(f'loading pre-trained weights from {config.model.archive}')
         policy = transformers.AutoModelForCausalLM.from_pretrained(
-            config.model.archive, torch_dtype=policy_dtype, **model_kwargs)
+            config.model.archive, cache_dir=get_local_dir(config.local_dirs), low_cpu_mem_usage=True,
+            torch_dtype=policy_dtype, attn_implementation='flash_attention_2', **model_kwargs)
+            #torch_dtype=policy_dtype, **model_kwargs)
         disable_dropout(policy)
-        if config.loss.name in {'dpo', 'ipo'}: # no dpo_our
+        if config.loss.name in {'dpo', 'ipo'}: # no ours_dpo
             reference_model = transformers.AutoModelForCausalLM.from_pretrained(
-                config.model.archive, torch_dtype=reference_model_dtype, **model_kwargs)
+                config.model.archive, cache_dir=get_local_dir(config.local_dirs), low_cpu_mem_usage=True,
+                torch_dtype=reference_model_dtype, attn_implementation='flash_attention_2', **model_kwargs)
+                #torch_dtype=reference_model_dtype, **model_kwargs)
             disable_dropout(reference_model)
         else:
             reference_model = None

@@ -17,7 +17,7 @@ logging.basicConfig(
     level=logging.DEBUG,  # 设置日志级别
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # 设置日志格式
     handlers=[
-        logging.FileHandler("haha.log"),  # 输出到文件
+        #logging.FileHandler("haha.log"),  # 输出到文件
         logging.StreamHandler()  # 输出到控制台
     ]
 )
@@ -54,7 +54,6 @@ def rank0_print(*args, **kwargs):
     if not dist.is_initialized() or dist.get_rank() == 0:
         # print(*args, **kwargs)
         logger.info(*args,**kwargs)
-        # logger.info()
 
 
 
@@ -62,9 +61,9 @@ def get_local_dir(prefixes_to_resolve: List[str]) -> str:
     """Return the path to the cache directory for this user."""
     for prefix in prefixes_to_resolve:
         if os.path.exists(prefix):
-            return f"{prefix}/{getpass.getuser()}"
+            return prefix
     os.makedirs(prefix)
-    return f"{prefix}/{getpass.getuser()}"
+    return prefix
     
 
 def get_local_run_dir(exp_name: str, local_dirs: List[str]) -> str:
@@ -86,13 +85,16 @@ def slice_and_move_batch_for_device(batch: Dict, rank: int, world_size: int, dev
     return on_device
 
 
-def pad_to_length(tensor: torch.Tensor, length: int, pad_value: Union[int, float], dim: int = -1) -> torch.Tensor:
+def pad_to_length(tensor: torch.Tensor, length: int, pad_value: Union[int, float], dim: int = -1, to_left: bool = False) -> torch.Tensor:
     if tensor.size(dim) >= length:
         return tensor
     else:
         pad_size = list(tensor.shape)
         pad_size[dim] = length - tensor.size(dim)
-        return torch.cat([tensor, pad_value * torch.ones(*pad_size, dtype=tensor.dtype, device=tensor.device)], dim=dim)
+        if to_left:
+            return torch.cat([pad_value * torch.ones(*pad_size, dtype=tensor.dtype, device=tensor.device), tensor], dim=dim)
+        else:
+            return torch.cat([tensor, pad_value * torch.ones(*pad_size, dtype=tensor.dtype, device=tensor.device)], dim=dim)
 
 
 def all_gather_if_needed(values: torch.Tensor, rank: int, world_size: int) -> torch.Tensor:
