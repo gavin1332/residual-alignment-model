@@ -36,9 +36,8 @@ from tqdm import tqdm
 
 from logits_warper import (
     LogitsWarper,
-    SparJsLogitsWarper,
-    SparKlLogitsWarper,
-    SparLogitsWarper,
+    ParKlLogitsWarper,
+    ParLogitsWarper,
     MdsLogitsWarper,
 )
 
@@ -347,13 +346,10 @@ class Inference:
         self.logits_warper = None
         if self.base_model:
             if args.sample_mode == 'par':
-                self.logits_warper = SparLogitsWarper(self.base_model,
+                self.logits_warper = ParLogitsWarper(self.base_model,
                         top_k=args.base_top_k, top_p=args.base_top_p, temperature=args.base_temperature)
-            elif args.sample_mode == 'par_js':
-                self.logits_warper = SparJsLogitsWarper(self.base_model, top_k=args.base_top_k, top_p=args.base_top_p,
-                        temperature=args.base_temperature, js_div_threshold=args.div_threshold)
             elif args.sample_mode == 'par_kl':
-                self.logits_warper = SparKlLogitsWarper(self.base_model, top_k=args.base_top_k, top_p=args.base_top_p,
+                self.logits_warper = ParKlLogitsWarper(self.base_model, top_k=args.base_top_k, top_p=args.base_top_p,
                         temperature=args.base_temperature, kl_div_threshold=args.div_threshold)
             elif args.sample_mode == 'mds':
                 self.logits_warper = MdsLogitsWarper(self.base_model, base_temperature=args.base_temperature,
