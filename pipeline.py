@@ -22,12 +22,6 @@ class Pipeline:
                     helpful='_data/test/hh_helpful_test_chosen_300.json',
                     harmless='_data/test/hh_harmless_test_chosen_300.json'),
                 ),
-            'harmless': dict(
-                examples_in_train=42537,
-                test_files=dict(
-                    helpful='_data/test/hh_helpful_test_chosen_300.json',
-                    harmless='_data/test/hh_harmless_test_chosen_300.json'),
-                ),
             'uc': dict(
                 examples_in_train=120000,
                 test_files=dict(helpful='_data/test/alpaca_eval_gpt4_baseline.json'),
@@ -127,30 +121,6 @@ class Pipeline:
     def validate_args(self, parser):
         pass
 
-    def pre_sampling(self):
-        assert self.test_file and self.args.for_aligner, 'Only used for aligner with pre assigned test_file'
-
-        if os.path.exists(self.test_file) and not self.args.force_clean:
-            print(f'pre-sampling output exists. Skip: {self.test_file}')
-            return
-            
-        print(f'Start sampling from proposal model to {self.test_file} ...')
-        sampling_params = SamplingParams(
-            model=self.args.proposal,
-            generator=self.proposal_model(),
-            temperature=0.5,
-            top_p=0.95,
-            top_k=10,
-            repetition_penalty=1.05,
-            max_length=2048,
-            max_prompt_length=1024,
-            multiround=self.args.multiround
-        )
-        sampler = ParallelSampler(gpu_ids_str=self.args.gpu_ids,
-                                  sampling_params=sampling_params,
-                                  use_vllm=True)
-        sampler.do_sample(self.get_test_file(), self.test_file)
-
     def exp_name(self):
         prefix = self.exp_name_prefix()
         postfix = self.exp_name_postfix()
@@ -188,6 +158,30 @@ class Pipeline:
 
         if not (self.args.skip_sampling and self.args.skip_eval):
             self.do_evaluate()
+
+    def pre_sampling(self):
+        assert self.test_file and self.args.for_aligner, 'Only used for aligner with pre assigned test_file'
+
+        if os.path.exists(self.test_file) and not self.args.force_clean:
+            print(f'pre-sampling output exists. Skip: {self.test_file}')
+            return
+            
+        print(f'Start sampling from proposal model to {self.test_file} ...')
+        sampling_params = SamplingParams(
+            model=self.args.proposal,
+            generator=self.proposal_model(),
+            temperature=0.5,
+            top_p=0.95,
+            top_k=10,
+            repetition_penalty=1.05,
+            max_length=2048,
+            max_prompt_length=1024,
+            multiround=self.args.multiround
+        )
+        sampler = ParallelSampler(gpu_ids_str=self.args.gpu_ids,
+                                  sampling_params=sampling_params,
+                                  use_vllm=True)
+        sampler.do_sample(self.get_test_file(), self.test_file)
 
     def do_train(self):
         print(f'exp_name: {self.exp_name()}')
@@ -246,7 +240,10 @@ class Pipeline:
         return self.datasets_info[self.args.dataset]['examples_in_train'] // self.args.batch_size * self.args.batch_size
 
     def calc_examples_half_epoch(self):
-        return (self.calc_examples_per_epoch() + self.args.batch_size - 1) // 2
+        half = self.calc_examples_per_epoch() // 2
+        if half % self.args.batch_size != 0:
+            half = (self.calc_examples_per_epoch() + self.args.batch_size) // 2
+        return half
 
     def get_test_file(self):
         return self.datasets_info[self.args.dataset]['test_files'][self.args.eval_task]
