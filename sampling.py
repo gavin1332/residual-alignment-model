@@ -10,7 +10,6 @@ from fastchat.conversation import get_conv_template
 import transformers
 
 
-# FIXME: Moving this dataclass to Inference will cause "re-initializing CUDA in forked subprocess"
 @dataclass
 class SamplingParams:
     # model
