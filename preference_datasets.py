@@ -10,6 +10,7 @@ import re
 import random
 from bs4 import BeautifulSoup, NavigableString
 import numpy as np
+from scripts.sample.template import summ_prompt
 from typing import Dict, List, Optional, Iterator, Callable, Union, Tuple
 from sampling import default_build_prompt as build_prompt
 
