@@ -49,5 +49,5 @@ Run evaluation:
 
 ## Acknowledgments
 
-This code is built upon the [eric-mitchell/direct-preference-optimization](https://github.com/eric-mitchell/direct-preference-optimization) (for training code) and [lm-sys/FastChat](https://github.com/lm-sys/FastChat) (for our inference code) repository. For more details on the foundational work, please refer to the original repo.
+This code is built upon the [eric-mitchell/direct-preference-optimization](https://github.com/eric-mitchell/direct-preference-optimization) (for training) and [lm-sys/FastChat](https://github.com/lm-sys/FastChat) (for our inference) repositories. For more details on the foundational work, please refer to the original repo.
 
