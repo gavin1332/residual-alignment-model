@@ -1,6 +1,6 @@
 # RAM: Residual Alignment Model
 
-This repo includes a reference implementation of the **Residual Alignment Model (RAM)** for training and evaluation.
+This repo includes a reference implementation of the **Residual Alignment Model (RAM)** for training and evaluation, as described in the paper: "Leveraging Importance Sampling to Detach Alignment Modules from Large Language Models".
 
 ## Prerequisites
 
